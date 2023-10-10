@@ -1,6 +1,7 @@
 package web3protocol
 
 import (
+	"unicode"
     "strconv"
     "encoding/json"
     "fmt"
@@ -160,12 +161,19 @@ func (client *Client) FetchUrl(url string) (fetchedUrl FetchedWeb3URL, err error
 func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     web3Url.Url = url
 
+    // Check that the URL is ASCII only
+    for i := 0; i < len(web3Url.Url); i++ {
+        if web3Url.Url[i] > unicode.MaxASCII {
+            return web3Url, &Web3Error{http.StatusBadRequest, "URL is invalid, contains non-ASCII characters"}
+        }
+    }
+
     // Parse the main structure of the URL
     web3UrlRegexp, err := regexp.Compile(`^(?P<protocol>[^:]+):\/\/(?P<hostname>[^:\/?]+)(:(?P<chainId>[1-9][0-9]*))?(?P<path>(?P<pathname>\/[^?]*)?([?](?P<searchParams>.*))?)?$`)
     if err != nil {
         return
     }
-    matches := web3UrlRegexp.FindStringSubmatch(url)
+    matches := web3UrlRegexp.FindStringSubmatch(web3Url.Url)
     if len(matches) == 0 {
         return web3Url, &Web3Error{http.StatusBadRequest, "Invalid URL format"}
     }

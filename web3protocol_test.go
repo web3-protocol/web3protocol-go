@@ -68,7 +68,7 @@ type Test struct {
 
 type TestGroup struct {
     Name string
-    Standard string
+    Standards []string
     Tests []Test
 }
 
@@ -107,6 +107,7 @@ func TestSuite(t *testing.T) {
     }
 
     for _, file := range files {
+    	// Open test file
         f, err := os.Open(file)
         if err != nil {
             panic(err)
@@ -115,6 +116,7 @@ func TestSuite(t *testing.T) {
             err = f.Close()
         }(f)
 
+        // Decode the test groups
         testGroups := TestGroups{}
         err = toml.NewDecoder(bufio.NewReader(f)).Decode(&testGroups)
         if _, ok := err.(*toml.LineError); ok {
@@ -124,6 +126,17 @@ func TestSuite(t *testing.T) {
 
 
         for _, testGroup := range testGroups.Groups {
+        	// We will only process the ERC-6860 /  tests
+        	isStandardSupported := false
+        	for _, standard := range testGroup.Standards {
+        		if standard == "ERC-6860" || standard == "ERC-6821" || standard == "ERC-6944" {
+        			isStandardSupported = true
+        		}
+        	}
+        	if isStandardSupported == false {
+        		continue
+        	}
+
             for _, test := range testGroup.Tests {
                 testName := fmt.Sprintf("%v/%v/%v/%v", testGroups.Name, testGroup.Name, test.Name, test.Url)
                 t.Run(testName, func(t *testing.T) {
