@@ -258,9 +258,11 @@ func TestSuite(t *testing.T) {
                                             newValue.SetInt64(methodArgValue.Value.(int64))
                                             methodArgValue.Value = newValue
                                     }
+                                    // bytes<X>
+                                    if len(test.MethodArgs[i].Type) > 5 && test.MethodArgs[i].Type[0:5] == "bytes" {
+                                    	methodArgValue.Value = common.HexToHash(methodArgValue.Value.(string))
+                                    }
                                     switch test.MethodArgs[i].Type {
-                                        case "bytes32":
-                                            methodArgValue.Value = common.HexToHash(methodArgValue.Value.(string))
                                         case "bytes":
                                             methodArgValue.Value = common.FromHex(methodArgValue.Value.(string))
                                         case "address":

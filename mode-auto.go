@@ -7,7 +7,8 @@ import(
     "math/big"
     "net/url"
     "regexp"
-    // "fmt"
+    "strconv"
+    "fmt"
 
     "github.com/ethereum/go-ethereum/accounts/abi"
     "github.com/ethereum/go-ethereum/common"
@@ -125,97 +126,169 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 
 
 // parseArgument parses a [TYPE!]VALUE string into an abi.Type. The type will be auto-detected if TYPE not provided
-func (client *Client) parseArgument(s string, nsChain int) (abi.Type, string, interface{}, error) {
-    ss := strings.Split(s, "!")
+func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.Type, typeName string, argValue interface{}, err error) {
+    ss := strings.Split(argument, "!")
     if len(ss) > 2 {
-        return abi.Type{}, "", nil, &Web3Error{http.StatusBadRequest, "Argument wrong format: " + s}
+        err = &Web3Error{http.StatusBadRequest, "Argument wrong format: " + argument}
+        return
     }
 
-    var v interface{}
     if len(ss) == 2 {
-        switch ss[0] {
-        case "uint256":
-            b := new(big.Int)
-            n, ok := b.SetString(ss[1], 0)
-            if !ok {
-                return abi.Type{}, "uint256", nil, &Web3Error{http.StatusBadRequest, "Argument is not a number: " + ss[1]}
-            }
-            if n.Cmp(new(big.Int)) == -1 {
-                return abi.Type{}, "uint256", nil, &Web3Error{http.StatusBadRequest, "Number is negative: " + ss[1]}
-            }
-            v = n
-        case "bytes32":
-            if !has0xPrefix(ss[1]) || !isHex(ss[1][2:]) || len(ss[1][2:]) != 64 {
-                return abi.Type{}, "bytes32", nil, &Web3Error{http.StatusBadRequest, "Argument is not a valid hex string: " + ss[1]}
-            }
-            v = common.HexToHash(ss[1])
-        case "address":
-            addr, _, err := client.getAddressFromNameService(nsChain, ss[1])
+        typeName = ss[0]
+        argValueStr := ss[1]
+
+        // If there is a number at the right of the type, extract it
+        var typeWithoutSize string
+        typeSize := 0
+        var typeSizeRegexp *regexp.Regexp
+        typeSizeRegexp, err = regexp.Compile(`^([^0-9]+)([1-9][0-9]*)$`)
+        if err != nil {
+            return
+        }
+        matches := typeSizeRegexp.FindStringSubmatch(typeName)
+        // Type with size
+        if matches != nil {
+            typeWithoutSize = matches[1]
+            typeSize, err = strconv.Atoi(matches[2])
             if err != nil {
-                return abi.Type{}, "address", nil, err
+                return
             }
-            v = addr
-        case "bytes":
-            if !has0xPrefix(ss[1]) || !isHex(ss[1][2:]) {
-                return abi.Type{}, "bytes", nil, &Web3Error{http.StatusBadRequest, "Argument is not a valid hex string: " + ss[1]}
-            }
-            v = common.FromHex(ss[1])
-        case "string":
-            v = ss[1]
-            // URI-percent-encoding decoding
-            decodedV, err := url.PathUnescape(v.(string))
-            if err != nil  {
-                return abi.Type{}, "string", nil, &Web3Error{http.StatusBadRequest, "Unable to URI-percent decode: " + ss[1]}
-            }
-            v = decodedV
-        // case "bool":
-        //  {
-        //      if ss[1] == "0" {
-        //          v = false
-        //      }
-        //      v = true
-        //  }
-        default:
-            return abi.Type{}, "", nil, &Web3Error{http.StatusBadRequest, "Unknown type: " + ss[0]}
-        }
-        ty, _ := abi.NewType(ss[0], "", nil)
-        return ty, ss[0], v, nil
-    }
-
-    n := new(big.Int)
-    n, success := n.SetString(ss[0], 10)
-    if success {
-        // Check that positive
-        if n.Cmp(new(big.Int)) == -1 {
-            return abi.Type{}, "uint256", nil, &Web3Error{http.StatusBadRequest, "Number is negative: " + ss[0]}
-        }
-        // treat it as uint256
-        ty, _ := abi.NewType("uint256", "", nil)
-        return ty, "uint256", n, nil
-    }
-
-    if has0xPrefix(ss[0]) && isHex(ss[0][2:]) {
-        if len(ss[0]) == 40+2 {
-            v = common.HexToAddress(ss[0])
-            ty, _ := abi.NewType("address", "", nil)
-            return ty, "address", v, nil
-        } else if len(ss[0]) == 64+2 {
-            v = common.HexToHash(ss[0])
-            ty, _ := abi.NewType("bytes32", "", nil)
-            return ty, "bytes32", v, nil
+        // Type with no size
         } else {
-            v = common.FromHex(ss[0][2:])
-            ty, _ := abi.NewType("bytes", "", nil)
-            return ty, "bytes", v, nil
+            typeWithoutSize = typeName
+        }
+
+        switch typeWithoutSize {
+            case "uint", "int":
+                // uint/int are aliases of uint256/int256
+                if typeSize == 0 {
+                    typeSize = 256
+                    typeName = fmt.Sprintf("%v%v", typeWithoutSize, typeSize)
+                }
+                // Type size must be from 8 to 256, by steps of 8
+                if typeSize < 8 || typeSize > 256 || typeSize % 8 != 0 {
+                    err = &Web3Error{http.StatusBadRequest, "Invalid argument type: " + typeName}
+                        return
+                }
+
+                b := new(big.Int)
+                n, ok := b.SetString(argValueStr, 0)
+                if !ok {
+                    err = &Web3Error{http.StatusBadRequest, "Argument is not a number: " + argValueStr}
+                    return
+                }
+                if typeWithoutSize == "uint" && n.Cmp(new(big.Int)) == -1 {
+                    err = &Web3Error{http.StatusBadRequest, "Number is negative: " + argValueStr}
+                    return
+                }
+                argValue = n
+
+            case "bytes":
+                // "bytes", no type size
+                if typeSize == 0 {
+                    if !has0xPrefix(argValueStr) || !isHex(argValueStr[2:]) {
+                        err = &Web3Error{http.StatusBadRequest, "Argument is not a valid hex string: " + argValueStr}
+                        return
+                    }
+                    argValue = common.FromHex(argValueStr)
+                // "bytesXX", with a type size
+                } else {
+                    if typeSize > 32 {
+                        err = &Web3Error{http.StatusBadRequest, "Invalid argument type: " + typeName}
+                        return
+                    }
+
+                    if !has0xPrefix(argValueStr) || !isHex(argValueStr[2:]) {
+                        err = &Web3Error{http.StatusBadRequest, "Argument is not a valid hex string: " + argValueStr}
+                        return
+                    }
+                    if len(argValueStr[2:]) != 2 * typeSize {
+                        err = &Web3Error{http.StatusBadRequest, "Argument has not the correct length: " + argValueStr}
+                        return
+                    }
+                    argValue = common.HexToHash(argValueStr)
+                }
+
+            case "address":
+                var addr common.Address
+                addr, _, err = client.getAddressFromNameService(nsChain, argValueStr)
+                if err != nil {
+                    return
+                }
+                argValue = addr
+
+            case "string":
+                // URI-percent-encoding decoding
+                var decodedArgValue string
+                decodedArgValue, err = url.PathUnescape(argValueStr)
+                if err != nil  {
+                    err = &Web3Error{http.StatusBadRequest, "Unable to URI-percent decode: " + argValueStr}
+                    return
+                }
+                argValue = decodedArgValue
+
+            case "bool":
+                if argValueStr != "false" && argValueStr != "true" {
+                     err = &Web3Error{http.StatusBadRequest, "Argument must be 'true' or 'false'"}
+                        return
+                }
+                argValue = argValueStr == "true"
+
+            default:
+                err = &Web3Error{http.StatusBadRequest, "Unknown type: " + typeName}
+                return
+        }
+        abiType, _ = abi.NewType(typeName, "", nil)
+
+    // No type specified : we autodetect
+    } else {
+        argValueStr := ss[0]
+
+        n := new(big.Int)
+        n, success := n.SetString(argValueStr, 10)
+        if success {
+            // Check that positive
+            if n.Cmp(new(big.Int)) == -1 {
+                err = &Web3Error{http.StatusBadRequest, "Number is negative: " + argValueStr}
+                return
+            }
+            // treat it as uint256
+            typeName = "uint256"
+            abiType, _ = abi.NewType(typeName, "", nil)
+            argValue = n
+            return
+        }
+
+        if has0xPrefix(argValueStr) && isHex(argValueStr[2:]) {
+            if len(argValueStr) == 40+2 {
+                argValue = common.HexToAddress(argValueStr)
+                typeName = "address"
+                abiType, _ = abi.NewType(typeName, "", nil)
+                return
+            } else if len(argValueStr) == 64+2 {
+                argValue = common.HexToHash(argValueStr)
+                typeName = "bytes32"
+                abiType, _ = abi.NewType(typeName, "", nil)
+                return
+            } else {
+                argValue = common.FromHex(argValueStr[2:])
+                typeName = "bytes"
+                abiType, _ = abi.NewType(typeName, "", nil)
+                return
+            }
+        }
+
+        // parse as domain name
+        var addr common.Address
+        addr, _, err = client.getAddressFromNameService(nsChain, argValueStr)
+        if err == nil {
+            argValue = addr
+            typeName = "address"
+            abiType, _ = abi.NewType(typeName, "", nil)
+            return abiType, "address", addr, nil
         }
     }
 
-    // parse as domain name
-    addr, _, err := client.getAddressFromNameService(nsChain, ss[0])
-    if err == nil {
-        ty, _ := abi.NewType("address", "", nil)
-        return ty, "address", addr, nil
-    }
-    return abi.Type{}, "", nil, err
+    return
 }
 
