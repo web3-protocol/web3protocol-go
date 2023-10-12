@@ -121,14 +121,14 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
     // Create connection
     ethClient, err := ethclient.Dial(client.Config.Chains[chain].RPC)
     if err != nil {
-        return contractReturn, &Web3Error{http.StatusBadRequest, err.Error()}
+        return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
     }
     defer ethClient.Close()
 
     // Do the contract call
     contractReturn, err = handleCallContract(*ethClient, callMessage)
     if err != nil {
-        return contractReturn, &Web3Error{http.StatusNotFound, err.Error()}
+        return contractReturn, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
     }
 
     return
@@ -138,10 +138,10 @@ func handleCallContract(client ethclient.Client, msg ethereum.CallMsg) ([]byte, 
     bs, err := client.CallContract(context.Background(), msg, nil)
     if err != nil {
         if err.Error() == "execution reverted" {
-            return nil, &Web3Error{http.StatusBadRequest, err.Error()}
+            return nil, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
         } else {
             // log.Debug(err)
-            return nil, &Web3Error{http.StatusInternalServerError, "internal server error"}
+            return nil, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error"}
         }
     }
     return bs, nil

@@ -71,10 +71,10 @@ type DomainNameServiceChainConfig struct {
 
 
 // An error type with a HTTP code
-type Web3Error struct {
+type ErrorWithHttpCode struct {
     HttpCode int
-    err  string
+    Err  string
 }
-func (e *Web3Error) Error() string {
-    return e.err
+func (e *ErrorWithHttpCode) Error() string {
+    return e.Err
 }

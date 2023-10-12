@@ -40,7 +40,7 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
     for i, _ := range pathnamePartsToSend {
         decodedPart, err := url.PathUnescape(pathnamePartsToSend[i])
         if err != nil  {
-            return &Web3Error{http.StatusBadRequest, "Unable to URI-percent decode: " + pathnamePartsToSend[i]}
+            return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to URI-percent decode: " + pathnamePartsToSend[i]}
         }
         pathnamePartsToSend[i] = decodedPart
     }
@@ -94,7 +94,7 @@ func (client *Client) ProcessResourceRequestContractReturn(web3Url *Web3URL, con
     // Decode the ABI data
     unpackedValues, err := returnDataArgTypes.UnpackValues(contractReturn)
     if err != nil {
-        return fetchedWeb3Url, &Web3Error{http.StatusBadRequest, "Unable to parse contract output"}
+        return fetchedWeb3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
     }
 
     // Assign the decoded data to the right slots

@@ -159,7 +159,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     // Check that the URL is ASCII only
     for i := 0; i < len(web3Url.Url); i++ {
         if web3Url.Url[i] > unicode.MaxASCII {
-            return web3Url, &Web3Error{http.StatusBadRequest, "URL is invalid, contains non-ASCII characters"}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "URL is invalid, contains non-ASCII characters"}
         }
     }
 
@@ -170,7 +170,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     }
     matches := web3UrlRegexp.FindStringSubmatch(web3Url.Url)
     if len(matches) == 0 {
-        return web3Url, &Web3Error{http.StatusBadRequest, "Invalid URL format"}
+        return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Invalid URL format"}
     }
     urlMainParts := map[string]string{}
     for i, name := range web3UrlRegexp.SubexpNames() {
@@ -181,7 +181,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 
     // Protocol name: 1 name and alias supported
     if urlMainParts["protocol"] != "web3" && urlMainParts["protocol"] != "w3" {
-        return web3Url, &Web3Error{http.StatusBadRequest, "Protocol name is invalid"}
+        return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Protocol name is invalid"}
     }
 
     // Default chain is ethereum mainnet
@@ -191,7 +191,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         chainId, err := strconv.Atoi(urlMainParts["chainId"])
         if err != nil {
             // Regexp should always get us valid numbers, but we could enter here if overflow
-            return web3Url, &Web3Error{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", urlMainParts["chainId"])}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", urlMainParts["chainId"])}
         }
         web3Url.ChainId = chainId
     }
@@ -199,7 +199,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     // Check that we support the chain
     _, ok := client.Config.Chains[web3Url.ChainId]
     if !ok {
-        return web3Url, &Web3Error{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", web3Url.ChainId)}
+        return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", web3Url.ChainId)}
     }
 
     // Main hostname : We determine if we need hostname resolution, and do it
@@ -209,13 +209,13 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         // Determine name suffix
         hostnameParts := strings.Split(urlMainParts["hostname"], ".")
         if len(hostnameParts) <= 1 {
-            return web3Url, &Web3Error{http.StatusBadRequest, "Invalid contract address"}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Invalid contract address"}
         }
         nameServiceSuffix := hostnameParts[len(hostnameParts) - 1]
         domainNameWithoutSuffix := strings.Join(hostnameParts[0:len(hostnameParts) - 1], ".")
 
         if domainNameWithoutSuffix == "" {
-            return web3Url, &Web3Error{http.StatusBadRequest, "Invalid domain name"}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Invalid domain name"}
         }
 
         // If the chain id was not explicitely requested on the URL, we will use the 
@@ -224,7 +224,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         if len(urlMainParts["chainId"]) == 0 {
             domainNameService := client.Config.GetDomainNameServiceBySuffix(nameServiceSuffix)
             if domainNameService == "" || client.Config.DomainNameServices[domainNameService].DefaultChainId == 0 {
-                return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
+                return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
             }
             web3Url.ChainId = client.Config.DomainNameServices[domainNameService].DefaultChainId
         }
@@ -234,12 +234,12 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 
         domainNameService := client.Config.GetDomainNameServiceBySuffix(nameServiceSuffix)
         if domainNameService == "" {
-            return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
         }
         chainConfig, _ := client.Config.Chains[web3Url.HostDomainNameResolverChainId]
         _, domainNameServiceSupportedInChain := chainConfig.DomainNameServices[domainNameService]
         if domainNameServiceSupportedInChain == false {
-            return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
         }
         web3Url.HostDomainNameResolver = domainNameService
 
@@ -268,7 +268,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 
         _, ok = client.Config.Chains[web3Url.ChainId]
         if !ok {
-            return web3Url, &Web3Error{http.StatusBadRequest, fmt.Sprintf("unsupported chain id: %v", web3Url.ChainId)}
+            return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("unsupported chain id: %v", web3Url.ChainId)}
         }
     }
 
@@ -298,7 +298,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         web3Url.ResolveMode = ResolveModeResourceRequests
     // Other cases (method returning non recognized value) : throw an error
     } else {
-        return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported resolve mode"}
+        return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported resolve mode"}
     }
 
     // Then process the resolve-mode-specific parts
@@ -346,7 +346,7 @@ func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []by
     }
 
     if len(contractReturn) == 0 {
-        return contractReturn, &Web3Error{http.StatusNotFound, "The contract returned no data (\"0x\").\n\nThis could be due to any of the following:\n  - The contract does not have the requested function,\n  - The parameters passed to the contract function may be invalid, or\n  - The address is not a contract."}
+        return contractReturn, &ErrorWithHttpCode{http.StatusNotFound, "The contract returned no data (\"0x\").\n\nThis could be due to any of the following:\n  - The contract does not have the requested function,\n  - The parameters passed to the contract function may be invalid, or\n  - The address is not a contract."}
     }
 
     return
@@ -374,7 +374,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         // Decode the ABI bytes
         unpackedValues, err := argsArguments.UnpackValues(contractReturn)
         if err != nil {
-            return fetchedWeb3Url, &Web3Error{http.StatusBadRequest, "Unable to parse contract output"}
+            return fetchedWeb3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
         }
         fetchedWeb3Url.Output = unpackedValues[0].([]byte)
         fetchedWeb3Url.HttpCode = 200
@@ -404,7 +404,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         // Decode the ABI data
         unpackedValues, err := argsArguments.UnpackValues(contractReturn)
         if err != nil {
-            return fetchedWeb3Url, &Web3Error{http.StatusBadRequest, "Unable to parse contract output"}
+            return fetchedWeb3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
         }
 
         // Format the data
