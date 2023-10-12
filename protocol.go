@@ -222,7 +222,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         // "default home" chain id of the name resolution service 
         // (e.g. 1 for .eth, 333 for w3q) as the target chain
         if len(urlMainParts["chainId"]) == 0 {
-            domainNameService := client.Config.getDomainNameServiceBySuffix(nameServiceSuffix)
+            domainNameService := client.Config.GetDomainNameServiceBySuffix(nameServiceSuffix)
             if domainNameService == "" || client.Config.DomainNameServices[domainNameService].DefaultChainId == 0 {
                 return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
             }
@@ -232,7 +232,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         // We will use a nameservice in the current target chain
         web3Url.HostDomainNameResolverChainId = web3Url.ChainId
 
-        domainNameService := client.Config.getDomainNameServiceBySuffix(nameServiceSuffix)
+        domainNameService := client.Config.GetDomainNameServiceBySuffix(nameServiceSuffix)
         if domainNameService == "" {
             return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
         }

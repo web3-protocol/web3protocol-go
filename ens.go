@@ -215,7 +215,7 @@ func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (D
     if !ok {
         return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
     }
-    domainNameService := client.Config.getDomainNameServiceBySuffix(suffix)
+    domainNameService := client.Config.GetDomainNameServiceBySuffix(suffix)
     if domainNameService == "" {
         return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
     }
@@ -236,7 +236,7 @@ func (client *Client) parseChainSpecificAddress(addr string) (common.Address, in
         return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "invalid contract address from name service: " + addr}
     }
     chainName := ss[0]
-    chainId := client.Config.getChainIdByShortName(strings.ToLower(chainName))
+    chainId := client.Config.GetChainIdByShortName(strings.ToLower(chainName))
     if chainId == 0 {
         return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "unsupported chain short name from name service: " + addr}
     }

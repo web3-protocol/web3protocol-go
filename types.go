@@ -15,7 +15,7 @@ type Config struct {
     // There is an internal domain name resolution cache
     NameAddrCacheDurationInMinutes int
 }
-func (config *Config) getChainIdByShortName(shortName string) (result int) {
+func (config *Config) GetChainIdByShortName(shortName string) (result int) {
     for chainId, _ := range config.Chains {
         if config.Chains[chainId].ShortName == shortName {
             result = chainId
@@ -25,7 +25,7 @@ func (config *Config) getChainIdByShortName(shortName string) (result int) {
 
     return
 }
-func (config *Config) getDomainNameServiceBySuffix(suffix string) (result DomainNameService) {
+func (config *Config) GetDomainNameServiceBySuffix(suffix string) (result DomainNameService) {
     for domainNameService, _ := range config.DomainNameServices {
         if config.DomainNameServices[domainNameService].Suffix == suffix {
             result = domainNameService
