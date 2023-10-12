@@ -119,7 +119,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
     }
 
     // Create connection
-    ethClient, err := ethclient.Dial(client.Config.ChainConfigs[chain].RPC)
+    ethClient, err := ethclient.Dial(client.Config.Chains[chain].RPC)
     if err != nil {
         return contractReturn, &Web3Error{http.StatusBadRequest, err.Error()}
     }

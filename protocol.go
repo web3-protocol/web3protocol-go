@@ -1,7 +1,7 @@
 package web3protocol
 
 import (
-	"unicode"
+    "unicode"
     "strconv"
     "encoding/json"
     "fmt"
@@ -16,7 +16,7 @@ import (
 )
 
 type Client struct {
-    Config Config
+    Config *Config
     nameAddrCache *localCache
 }
 
@@ -113,12 +113,7 @@ type FetchedWeb3URL struct {
 /**
  * You'll need to instantiate a client to make calls.
  */
-func NewClient() (client *Client) {
-    // Default values
-    config := Config{
-        NameAddrCacheDurationInMinutes: 60,
-    }
-
+func NewClient(config *Config) (client *Client) {
     client = &Client{
         Config: config,
         nameAddrCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
@@ -202,7 +197,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     }
 
     // Check that we support the chain
-    _, ok := client.Config.ChainConfigs[web3Url.ChainId]
+    _, ok := client.Config.Chains[web3Url.ChainId]
     if !ok {
         return web3Url, &Web3Error{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", web3Url.ChainId)}
     }
@@ -227,22 +222,26 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         // "default home" chain id of the name resolution service 
         // (e.g. 1 for .eth, 333 for w3q) as the target chain
         if len(urlMainParts["chainId"]) == 0 {
-            NSDefaultChainId := client.Config.NSDefaultChains[nameServiceSuffix]
-            if NSDefaultChainId == 0 {
+            domainNameService := client.Config.getDomainNameServiceBySuffix(nameServiceSuffix)
+            if domainNameService == "" || client.Config.DomainNameServices[domainNameService].DefaultChainId == 0 {
                 return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
             }
-            web3Url.ChainId = NSDefaultChainId
+            web3Url.ChainId = client.Config.DomainNameServices[domainNameService].DefaultChainId
         }
 
         // We will use a nameservice in the current target chain
         web3Url.HostDomainNameResolverChainId = web3Url.ChainId
 
-        chainInfo, _ := client.Config.ChainConfigs[web3Url.HostDomainNameResolverChainId]
-        nsInfo, ok := chainInfo.NSConfig[nameServiceSuffix]
-        if !ok {
+        domainNameService := client.Config.getDomainNameServiceBySuffix(nameServiceSuffix)
+        if domainNameService == "" {
             return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
         }
-        web3Url.HostDomainNameResolver = nsInfo.NSType
+        chainConfig, _ := client.Config.Chains[web3Url.HostDomainNameResolverChainId]
+        _, domainNameServiceSupportedInChain := chainConfig.DomainNameServices[domainNameService]
+        if domainNameServiceSupportedInChain == false {
+            return web3Url, &Web3Error{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
+        }
+        web3Url.HostDomainNameResolver = domainNameService
 
         // Make the domaine name resolution, cache it
         var addr common.Address
@@ -267,7 +266,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
             web3Url.ChainId = targetChain
         }
 
-        _, ok = client.Config.ChainConfigs[web3Url.ChainId]
+        _, ok = client.Config.Chains[web3Url.ChainId]
         if !ok {
             return web3Url, &Web3Error{http.StatusBadRequest, fmt.Sprintf("unsupported chain id: %v", web3Url.ChainId)}
         }

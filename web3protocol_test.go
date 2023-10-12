@@ -97,6 +97,71 @@ func init() {
 
 
 func TestSuite(t *testing.T) {
+    // Prepare an hardcoded config for the tests
+    config := Config{
+        Chains: map[int]ChainConfig{
+            1: ChainConfig{
+                ChainId: 1,
+                ShortName: "eth",
+                RPC: "https://ethereum.publicnode.com/",
+                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
+                    DomainNameServiceENS: DomainNameServiceChainConfig{
+                        Id: DomainNameServiceENS,
+                        ResolverAddress: common.HexToAddress("0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"),
+                    },
+                },
+            },
+            5: ChainConfig{
+                ChainId: 5,
+                ShortName: "gor",
+                RPC: "https://ethereum-goerli.publicnode.com",
+                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
+                    DomainNameServiceENS: DomainNameServiceChainConfig{
+                        Id: DomainNameServiceENS,
+                        ResolverAddress: common.HexToAddress("0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"),
+                    },
+                },
+            },
+            11155111: ChainConfig{
+                ChainId: 11155111,
+                ShortName: "sep",
+                RPC: "https://ethereum-sepolia.publicnode.com",
+                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{},
+            },
+            3334: ChainConfig{
+                ChainId: 3334,
+                ShortName: "w3q-g",
+                RPC: "https://galileo.web3q.io:8545",
+                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
+                    DomainNameServiceW3NS: DomainNameServiceChainConfig{
+                        Id: DomainNameServiceW3NS,
+                        ResolverAddress: common.HexToAddress("0xD379B91ac6a93AF106802EB076d16A54E3519CED"),
+                    },
+                },
+            },
+            42170: ChainConfig{
+                ChainId: 42170,
+                ShortName: "arb-nova",
+                RPC: "https://nova.arbitrum.io/rpc",
+            },
+        },
+        DomainNameServices: map[DomainNameService]DomainNameServiceConfig{
+            DomainNameServiceENS: DomainNameServiceConfig{
+                Id: DomainNameServiceENS,
+                Suffix: "eth",
+                DefaultChainId: 1,
+            },
+            DomainNameServiceW3NS: DomainNameServiceConfig{
+                Id: DomainNameServiceW3NS,
+                Suffix: "w3q",
+                DefaultChainId: 333,
+            },
+        },
+        NameAddrCacheDurationInMinutes: 60,
+    }
+
+
+    // Test files
     files := []string{
         "tests/parsing-base.toml",
         "tests/parsing-mode-manual.toml",
@@ -105,9 +170,8 @@ func TestSuite(t *testing.T) {
         "tests/contract-return-processing.toml",
         "tests/fetch.toml",
     }
-
     for _, file := range files {
-    	// Open test file
+        // Open test file
         f, err := os.Open(file)
         if err != nil {
             panic(err)
@@ -126,77 +190,23 @@ func TestSuite(t *testing.T) {
 
 
         for _, testGroup := range testGroups.Groups {
-        	// We will only process the ERC-6860 /  tests
-        	isStandardSupported := false
-        	for _, standard := range testGroup.Standards {
-        		if standard == "ERC-6860" || standard == "ERC-6821" || standard == "ERC-6944" {
-        			isStandardSupported = true
-        		}
-        	}
-        	if isStandardSupported == false {
-        		continue
-        	}
+            // We will only process the ERC-6860 /  tests
+            isStandardSupported := false
+            for _, standard := range testGroup.Standards {
+                if standard == "ERC-6860" || standard == "ERC-6821" || standard == "ERC-6944" {
+                    isStandardSupported = true
+                }
+            }
+            if isStandardSupported == false {
+                continue
+            }
 
             for _, test := range testGroup.Tests {
                 testName := fmt.Sprintf("%v/%v/%v/%v", testGroups.Name, testGroup.Name, test.Name, test.Url)
                 t.Run(testName, func(t *testing.T) {
 
-                    client := NewClient()
-                    // Prepare an hardcoded config
-                    client.Config.ChainConfigs =  map[int]ChainConfig{
-                        1: ChainConfig{
-                            ChainID: 1,
-                            RPC: "https://ethereum.publicnode.com/",
-                            NSConfig: map[string]NameServiceInfo{
-                                "eth": NameServiceInfo{
-                                    NSType: DomainNameServiceENS,
-                                    NSAddr: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
-                                },
-                            },
-                        },
-                        5: ChainConfig{
-                            ChainID: 5,
-                            RPC: "https://ethereum-goerli.publicnode.com",
-                            NSConfig: map[string]NameServiceInfo{
-                                "eth": NameServiceInfo{
-                                    NSType: DomainNameServiceENS,
-                                    NSAddr: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
-                                },
-                            },
-                        },
-                        11155111: ChainConfig{
-                            ChainID: 11155111,
-                            RPC: "https://ethereum-sepolia.publicnode.com",
-                            NSConfig: map[string]NameServiceInfo{},
-                        },
-                        3334: ChainConfig{
-                            ChainID: 3334,
-                            RPC: "https://galileo.web3q.io:8545",
-                            NSConfig: map[string]NameServiceInfo{
-                                "w3q": NameServiceInfo{
-                                    NSType: DomainNameServiceW3NS,
-                                    NSAddr: "0xD379B91ac6a93AF106802EB076d16A54E3519CED",
-                                },
-                            },
-                        },
-                        42170: ChainConfig{
-                            ChainID: 42170,
-                            RPC: "https://nova.arbitrum.io/rpc",
-                        },
-                    }
-                    client.Config.Name2Chain = map[string]int{
-                        "eth":1,
-                        "gor": 5,
-                        "sep": 11155111,
-                        "w3q": 333,
-                        "w3q-g": 3334,
-                        "arb-nova": 42170,
-                    }
-                    client.Config.NSDefaultChains = map[string]int{
-                        "eth": 1,
-                        "w3q": 333,
-                    }
-
+                    // Create a new web3:// client
+                    client := NewClient(&config)
 
                     // Several types of tests
                     // Test type: Parsing URL
@@ -260,7 +270,7 @@ func TestSuite(t *testing.T) {
                                     }
                                     // bytes<X>
                                     if len(test.MethodArgs[i].Type) > 5 && test.MethodArgs[i].Type[0:5] == "bytes" {
-                                    	methodArgValue.Value = common.HexToHash(methodArgValue.Value.(string))
+                                        methodArgValue.Value = common.HexToHash(methodArgValue.Value.(string))
                                     }
                                     switch test.MethodArgs[i].Type {
                                         case "bytes":

@@ -103,7 +103,7 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
 
     // Not an address? It now has to have a dot to be a domain name, or it is just an invalid address
     if len(strings.Split(nameWithSuffix, ".")) == 1 {
-    	return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "Unrecognized address"}
+        return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "Unrecognized address"}
     }
 
     nsInfo, rpc, we := client.getConfigs(nameServiceChain, nameWithSuffix)
@@ -118,7 +118,7 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
 
     nameHash, _ := NameHash(nameWithSuffix)
     node := common.BytesToHash(nameHash[:]).Hex()
-    resolver, e := client.getResolver(ethClient, common.HexToAddress(nsInfo.NSAddr), node, nameServiceChain, nameWithSuffix)
+    resolver, e := client.getResolver(ethClient, nsInfo.ResolverAddress, node, nameServiceChain, nameWithSuffix)
     if e != nil {
         return common.Address{}, 0, e
     }
@@ -143,16 +143,16 @@ func (client *Client) getAddressFromNameServiceWebHandler(nameServiceChain int, 
 
     nameHash, _ := NameHash(nameWithSuffix)
     node := common.BytesToHash(nameHash[:]).Hex()
-    resolver, e := client.getResolver(ethClient, common.HexToAddress(nsInfo.NSAddr), node, nameServiceChain, nameWithSuffix)
+    resolver, e := client.getResolver(ethClient, nsInfo.ResolverAddress, node, nameServiceChain, nameWithSuffix)
     if e != nil {
         return common.Address{}, 0, e
     }
     var args []string
     var returnTp string
-    if nsInfo.NSType == DomainNameServiceW3NS {
+    if nsInfo.Id == DomainNameServiceW3NS {
         args = []string{"webHandler", "bytes32!" + node}
         returnTp = "(address)"
-    } else if nsInfo.NSType == DomainNameServiceENS {
+    } else if nsInfo.Id == DomainNameServiceENS {
         args = []string{"text", "bytes32!" + node, "string!contentcontract"}
         returnTp = "(string)"
     }
@@ -205,19 +205,23 @@ func (client *Client) getResolver(ethClient *ethclient.Client, nsAddr common.Add
     return common.BytesToAddress(bs), nil
 }
 
-func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (NameServiceInfo, string, error) {
+func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (DomainNameServiceChainConfig, string, error) {
     ss := strings.Split(nameWithSuffix, ".")
     if len(ss) <= 1 {
-        return NameServiceInfo{}, "", &Web3Error{http.StatusBadRequest, "invalid domain name: " + nameWithSuffix}
+        return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, "invalid domain name: " + nameWithSuffix}
     }
     suffix := ss[len(ss)-1]
-    chainInfo, ok := client.Config.ChainConfigs[nameServiceChain]
+    chainInfo, ok := client.Config.Chains[nameServiceChain]
     if !ok {
-        return NameServiceInfo{}, "", &Web3Error{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
+        return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
     }
-    nsInfo, ok := chainInfo.NSConfig[suffix]
+    domainNameService := client.Config.getDomainNameServiceBySuffix(suffix)
+    if domainNameService == "" {
+        return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+    }
+    nsInfo, ok := chainInfo.DomainNameServices[domainNameService]
     if !ok {
-        return NameServiceInfo{}, "", &Web3Error{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+        return DomainNameServiceChainConfig{}, "", &Web3Error{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
     }
     return nsInfo, chainInfo.RPC, nil
 }
@@ -232,8 +236,8 @@ func (client *Client) parseChainSpecificAddress(addr string) (common.Address, in
         return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "invalid contract address from name service: " + addr}
     }
     chainName := ss[0]
-    chainId, ok := client.Config.Name2Chain[strings.ToLower(chainName)]
-    if !ok {
+    chainId := client.Config.getChainIdByShortName(strings.ToLower(chainName))
+    if chainId == 0 {
         return common.Address{}, 0, &Web3Error{http.StatusBadRequest, "unsupported chain short name from name service: " + addr}
     }
     if !common.IsHexAddress(ss[1]) {
