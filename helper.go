@@ -48,8 +48,11 @@ func JsonEncodeAbiTypeValue(arg abi.Type, value interface{}) (result interface{}
         case abi.StringTy:
             result = value
 
+        case abi.BoolTy:
+            result = value
+
         case abi.IntTy, abi.UintTy:
-        	result = fmt.Sprintf("0x%x", value)
+            result = fmt.Sprintf("0x%x", value)
 
         case abi.FixedPointTy, abi.AddressTy:
             result = fmt.Sprintf("%v", value)
