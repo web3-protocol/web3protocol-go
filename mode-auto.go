@@ -127,15 +127,19 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 
 // parseArgument parses a [TYPE!]VALUE string into an abi.Type. The type will be auto-detected if TYPE not provided
 func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.Type, typeName string, argValue interface{}, err error) {
-    ss := strings.Split(argument, "!")
-    if len(ss) > 2 {
-        err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument wrong format: " + argument}
+    // URI-percent-encoding decoding
+    var decodedArgument string
+    decodedArgument, err = url.PathUnescape(argument)
+    if err != nil  {
+        err = &ErrorWithHttpCode{http.StatusBadRequest, "Unable to URI-percent decode: " + argument}
         return
     }
 
-    if len(ss) == 2 {
+    ss := strings.Split(decodedArgument, "!")
+
+    if len(ss) >= 2 {
         typeName = ss[0]
-        argValueStr := ss[1]
+        argValueStr := strings.Join(ss[1:], "!")
 
         // If there is a number at the right of the type, extract it
         var typeWithoutSize string
@@ -218,14 +222,7 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
                 argValue = addr
 
             case "string":
-                // URI-percent-encoding decoding
-                var decodedArgValue string
-                decodedArgValue, err = url.PathUnescape(argValueStr)
-                if err != nil  {
-                    err = &ErrorWithHttpCode{http.StatusBadRequest, "Unable to URI-percent decode: " + argValueStr}
-                    return
-                }
-                argValue = decodedArgValue
+                argValue = argValueStr
 
             case "bool":
                 if argValueStr != "false" && argValueStr != "true" {
