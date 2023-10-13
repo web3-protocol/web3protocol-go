@@ -160,7 +160,7 @@ func (client *Client) getAddressFromNameServiceWebHandler(nameServiceChain int, 
     if e != nil {
         return common.Address{}, 0, e
     }
-    bs, we := handleCallContract(*ethClient, msg)
+    bs, we := handleCallContract(ethClient, msg)
     if we != nil {
         return common.Address{}, 0, we
     }
@@ -195,7 +195,7 @@ func (client *Client) getResolver(ethClient *ethclient.Client, nsAddr common.Add
     if e != nil {
         return common.Address{}, e
     }
-    bs, e := handleCallContract(*ethClient, msg)
+    bs, e := handleCallContract(ethClient, msg)
     if e != nil {
         return common.Address{}, e
     }

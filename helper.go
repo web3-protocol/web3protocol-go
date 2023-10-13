@@ -131,7 +131,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
     defer ethClient.Close()
 
     // Do the contract call
-    contractReturn, err = handleCallContract(*ethClient, callMessage)
+    contractReturn, err = handleCallContract(ethClient, callMessage)
     if err != nil {
         return contractReturn, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
     }
@@ -139,7 +139,8 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
     return
 }
 
-func handleCallContract(client ethclient.Client, msg ethereum.CallMsg) ([]byte, error) {
+func handleCallContract(client *ethclient.Client, msg ethereum.CallMsg) ([]byte, error) {
+
     bs, err := client.CallContract(context.Background(), msg, nil)
     if err != nil {
         if err.Error() == "execution reverted" {

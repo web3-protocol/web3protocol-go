@@ -131,18 +131,19 @@ func NewClient(config *Config) (client *Client) {
 func (client *Client) FetchUrl(url string) (fetchedUrl FetchedWeb3URL, err error) {
     // Parse the URL
     parsedUrl, err := client.ParseUrl(url)
+    fetchedUrl.ParsedUrl = &parsedUrl
     if err != nil {
         return
     }
 
     // Fetch the contract return data
-    contractReturn, err := client.FetchContractReturn(&parsedUrl)
+    contractReturn, err := client.FetchContractReturn(fetchedUrl.ParsedUrl)
     if err != nil {
         return
     }
 
     // Finally, process the returned data
-    fetchedUrl, err = client.ProcessContractReturn(&parsedUrl, contractReturn)
+    fetchedUrl, err = client.ProcessContractReturn(fetchedUrl.ParsedUrl, contractReturn)
     if err != nil {
         return
     }
@@ -358,8 +359,6 @@ func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []by
 func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []byte) (fetchedWeb3Url FetchedWeb3URL, err error) {
     // Init the maps
     fetchedWeb3Url.HttpHeaders = map[string]string{}
-    // Link the parsed URL
-    fetchedWeb3Url.ParsedUrl = web3Url
 
     if web3Url.ContractReturnProcessing == "" {
         err = errors.New("Missing ContractReturnProcessing field");
