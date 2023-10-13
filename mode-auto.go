@@ -19,7 +19,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
     if urlMainParts["pathname"] == "" {
         web3Url.ContractCallMode = ContractCallModeCalldata
         web3Url.Calldata = []byte{}
-        web3Url.ContractReturnProcessing = ContractReturnProcessingABIEncodedBytes
+        web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
         return
     }
 
@@ -57,7 +57,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
     }
 
     // Return processing: By default ABI-encoded bytes
-    web3Url.ContractReturnProcessing = ContractReturnProcessingABIEncodedBytes
+    web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
     
     // Process the ?returns / ?returnTypes query
     parsedQuery, err := url.ParseQuery(urlMainParts["searchParams"])
@@ -109,7 +109,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 
     // If we are still returning decoded ABI-encoded bytes,
     // Get the mime type to use, from an argument
-    if web3Url.ContractReturnProcessing == ContractReturnProcessingABIEncodedBytes && len(pathnameParts) >= 3 /** At least an argument */ {
+    if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeABIEncodedBytes && len(pathnameParts) >= 3 /** At least an argument */ {
         lastPathnamePartParts := strings.Split(pathnameParts[len(pathnameParts) - 1], ".")
         if len(lastPathnamePartParts) > 1 {
             // If no mime type is found, this will return empty string

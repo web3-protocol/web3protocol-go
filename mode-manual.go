@@ -14,7 +14,7 @@ func (client *Client) parseManualModeUrl(web3Url *Web3URL, urlMainParts map[stri
 
     web3Url.ContractCallMode = ContractCallModeCalldata
     web3Url.Calldata = []byte(path)
-    web3Url.ContractReturnProcessing = ContractReturnProcessingABIEncodedBytes
+    web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
 
     // Default MIME type is text/html
     web3Url.DecodedABIEncodedBytesMimeType = "text/html"

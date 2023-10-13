@@ -42,7 +42,7 @@ const (
 type ContractReturnProcessing string
 const (
     // Expect the whole returned data to be ABI-encoded bytes. Decode.
-    ContractReturnProcessingABIEncodedBytes = "decodeABIEncodedBytes"
+    ContractReturnProcessingDecodeABIEncodedBytes = "decodeABIEncodedBytes"
     // JSON-encode the raw bytes of the returned data
     ContractReturnProcessingRawBytesJsonEncoded = "jsonEncodeRawBytes"
     // JSON-encode the different return values
@@ -367,7 +367,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
     }
 
     // Returned data is ABI-encoded bytes: We decode them and return them
-    if web3Url.ContractReturnProcessing == ContractReturnProcessingABIEncodedBytes {
+    if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeABIEncodedBytes {
         bytesType, _ := abi.NewType("bytes", "", nil)
         argsArguments := abi.Arguments{
             abi.Argument{Name: "", Type: bytesType, Indexed: false},
