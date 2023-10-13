@@ -323,21 +323,10 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []byte, err error) {
     var calldata []byte
 
-    // Contract call is specified with method and arguments, deduce the calldata from it
-    if web3Url.ContractCallMode == ContractCallModeMethod {
-        // Compute the calldata
-        calldata, err = methodCallToCalldata(web3Url.MethodName, web3Url.MethodArgs, web3Url.MethodArgValues)
-        if err != nil {
-            return contractReturn, err
-        }
-
-    // Contract call is specified with calldata directly
-    } else if web3Url.ContractCallMode == ContractCallModeCalldata {
-        calldata = web3Url.Calldata
-
-    // Empty field: This should not happen
-    } else {
-        err = errors.New("ContractCallMode is empty")
+    // Compute the calldata
+    calldata, err = web3Url.ComputeCalldata()
+    if err != nil {
+        return contractReturn, err
     }
 
     // Do the contract call
@@ -431,6 +420,30 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
     // The returned data come from contract implementing ERC5219, process it
     } else if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeErc5219Request {
         err = client.ProcessResourceRequestContractReturn(&fetchedWeb3Url, web3Url, contractReturn)
+    }
+
+    return
+}
+
+// If ContractCallMode is calldata, returned the stored calldata
+// If ContractCallMode is method, compute and return it
+func (web3Url *Web3URL) ComputeCalldata() (calldata []byte, err error) {
+
+    // Contract call is specified with method and arguments, deduce the calldata from it
+    if web3Url.ContractCallMode == ContractCallModeMethod {
+        // Compute the calldata
+        calldata, err = methodCallToCalldata(web3Url.MethodName, web3Url.MethodArgs, web3Url.MethodArgValues)
+        if err != nil {
+            return
+        }
+
+    // Contract call is specified with calldata directly
+    } else if web3Url.ContractCallMode == ContractCallModeCalldata {
+        calldata = web3Url.Calldata
+
+    // Empty field: This should not happen
+    } else {
+        err = errors.New("ContractCallMode is empty")
     }
 
     return
