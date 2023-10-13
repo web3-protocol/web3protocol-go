@@ -90,7 +90,7 @@ func (lc *localCache) cleanupLoop() {
     }
 }
 
-func (lc *localCache) setTracer(writeAPI api.WriteAPIBlocking) {
+func (lc *localCache) SetTracer(writeAPI api.WriteAPIBlocking) {
     lc.tracer = writeAPI
 }
 

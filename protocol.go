@@ -17,7 +17,7 @@ import (
 
 type Client struct {
     Config *Config
-    nameAddrCache *localCache
+    DomainNameResolutionCache *localCache
 }
 
 type DomainNameService string
@@ -116,7 +116,7 @@ type FetchedWeb3URL struct {
 func NewClient(config *Config) (client *Client) {
     client = &Client{
         Config: config,
-        nameAddrCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
+        DomainNameResolutionCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
     }
 
     return
@@ -248,8 +248,8 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
         var targetChain int
         var hit bool
         cacheKey := fmt.Sprintf("%v:%v", web3Url.HostDomainNameResolverChainId, urlMainParts["hostname"])
-        if client.nameAddrCache != nil {
-            addr, targetChain, hit = client.nameAddrCache.get(cacheKey)
+        if client.DomainNameResolutionCache != nil {
+            addr, targetChain, hit = client.DomainNameResolutionCache.get(cacheKey)
         }
         if !hit {
             var err error
@@ -257,8 +257,8 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
             if err != nil {
                 return web3Url, err
             }
-            if client.nameAddrCache != nil {
-                client.nameAddrCache.add(cacheKey, addr, targetChain)
+            if client.DomainNameResolutionCache != nil {
+                client.DomainNameResolutionCache.add(cacheKey, addr, targetChain)
             }
         }
         web3Url.ContractAddress = addr
