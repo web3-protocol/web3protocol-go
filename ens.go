@@ -328,7 +328,7 @@ func parseOutput(output []byte, userTypes string) ([]interface{}, error) {
     if userTypes != "" {
         for i, arg := range argsArray {
             // get the type of the return value
-            res[i], _ = toJSON(arg.Type, res[i])
+            res[i], _ = JsonEncodeAbiTypeValue(arg.Type, res[i])
         }
     }
     return res, nil

@@ -40,8 +40,10 @@ func isHex(str string) bool {
     return true
 }
 
-// convert the value to json string recursively, use "0x" hex string for bytes, use string for numbers
-func toJSON(arg abi.Type, value interface{}) (result interface{}, err error) {
+// Used for auto mode returning JSON :
+// For a given ABI type and a value, convert it to a string, with the data formatted
+// according to the spec
+func JsonEncodeAbiTypeValue(arg abi.Type, value interface{}) (result interface{}, err error) {
     switch arg.T {
         case abi.StringTy:
             result = value
@@ -60,7 +62,7 @@ func toJSON(arg abi.Type, value interface{}) (result interface{}, err error) {
             result = make([]interface{}, 0)
             rv := reflect.ValueOf(value)
             for i := 0; i < rv.Len(); i++ {
-                subResult, err := toJSON(ty, rv.Index(i).Interface())
+                subResult, err := JsonEncodeAbiTypeValue(ty, rv.Index(i).Interface())
                 if err != nil {
                     return result, err
                 }

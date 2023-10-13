@@ -413,7 +413,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         formattedValues := make([]interface{}, 0)
         for i, arg := range argsArguments {
             // get the type of the return value
-            formattedValue, err := toJSON(arg.Type, unpackedValues[i])
+            formattedValue, err := JsonEncodeAbiTypeValue(arg.Type, unpackedValues[i])
             if err != nil {
                 return fetchedWeb3Url, err
             }
