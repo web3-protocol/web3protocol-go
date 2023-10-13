@@ -131,19 +131,20 @@ func NewClient(config *Config) (client *Client) {
 func (client *Client) FetchUrl(url string) (fetchedUrl FetchedWeb3URL, err error) {
     // Parse the URL
     parsedUrl, err := client.ParseUrl(url)
-    fetchedUrl.ParsedUrl = &parsedUrl
     if err != nil {
+        fetchedUrl.ParsedUrl = &parsedUrl
         return
     }
 
     // Fetch the contract return data
-    contractReturn, err := client.FetchContractReturn(fetchedUrl.ParsedUrl)
+    contractReturn, err := client.FetchContractReturn(&parsedUrl)
     if err != nil {
+        fetchedUrl.ParsedUrl = &parsedUrl
         return
     }
 
     // Finally, process the returned data
-    fetchedUrl, err = client.ProcessContractReturn(fetchedUrl.ParsedUrl, contractReturn)
+    fetchedUrl, err = client.ProcessContractReturn(&parsedUrl, contractReturn)
     if err != nil {
         return
     }
@@ -346,6 +347,8 @@ func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []by
  * Step 3 : Process the data returned by the main contract.
  */
 func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []byte) (fetchedWeb3Url FetchedWeb3URL, err error) {
+    // Add link to the parsedUrl
+    fetchedWeb3Url.ParsedUrl = web3Url
     // Init the maps
     fetchedWeb3Url.HttpHeaders = map[string]string{}
 
