@@ -74,9 +74,7 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
 }
 
 // Step 3 : We have the contract return, process it
-func (client *Client) ProcessResourceRequestContractReturn(web3Url *Web3URL, contractReturn []byte) (fetchedWeb3Url FetchedWeb3URL, err error) {
-    // Init the maps
-    fetchedWeb3Url.HttpHeaders = map[string]string{}
+func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *FetchedWeb3URL, web3Url *Web3URL, contractReturn []byte) (err error) {
 
     // Preparing the ABI data structure with which we will decode the contract output
     uint16Type, _ := abi.NewType("uint16", "", nil)
@@ -94,7 +92,7 @@ func (client *Client) ProcessResourceRequestContractReturn(web3Url *Web3URL, con
     // Decode the ABI data
     unpackedValues, err := returnDataArgTypes.UnpackValues(contractReturn)
     if err != nil {
-        return fetchedWeb3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
+        return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
     }
 
     // Assign the decoded data to the right slots
@@ -102,14 +100,14 @@ func (client *Client) ProcessResourceRequestContractReturn(web3Url *Web3URL, con
     httpCode, ok := unpackedValues[0].(uint16)
     if !ok {
         err = fmt.Errorf("invalid statusCode(uint16) %v", unpackedValues[0])
-        return fetchedWeb3Url, err
+        return
     }
     fetchedWeb3Url.HttpCode = int(httpCode)
     // Body
     body, ok := unpackedValues[1].(string)
     if !ok {
         err = fmt.Errorf("invalid body(string) %v", unpackedValues[1])
-        return fetchedWeb3Url, err
+        return
     }
     fetchedWeb3Url.Output = []byte(body)
     // Headers
@@ -118,7 +116,7 @@ func (client *Client) ProcessResourceRequestContractReturn(web3Url *Web3URL, con
         Value string `json:"value"`})
     if !ok {
         err = fmt.Errorf("invalid headers %v", unpackedValues[2])
-        return fetchedWeb3Url, err
+        return
     }
     for _, header := range headers {
         fetchedWeb3Url.HttpHeaders[header.Key] = header.Value

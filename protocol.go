@@ -431,7 +431,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
 
     // The returned data come from contract implementing ERC5219, process it
     } else if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeErc5219Request {
-        fetchedWeb3Url, err = client.ProcessResourceRequestContractReturn(web3Url, contractReturn)
+        err = client.ProcessResourceRequestContractReturn(&fetchedWeb3Url, web3Url, contractReturn)
     }
 
     return
