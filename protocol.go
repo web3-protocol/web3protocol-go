@@ -358,6 +358,8 @@ func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []by
 func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []byte) (fetchedWeb3Url FetchedWeb3URL, err error) {
     // Init the maps
     fetchedWeb3Url.HttpHeaders = map[string]string{}
+    // Link the parsed URL
+    fetchedWeb3Url.ParsedUrl = web3Url
 
     if web3Url.ContractReturnProcessing == "" {
         err = errors.New("Missing ContractReturnProcessing field");
