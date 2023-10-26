@@ -75,8 +75,8 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
     }
 
     // Process the ?returns / ?returnTypes query
-    selectedLastQueryValue := parsedQuery.getLastByNames([]string{"returns", "returnTypes"})
-    returnTypes := selectedLastQueryValue.Value
+    selectedLastQueryParam := parsedQuery.getLastByNames([]string{"returns", "returnTypes"})
+    returnTypes := selectedLastQueryParam.Value
     if returnTypes != "" {
         if len(returnTypes) < 2 {
             return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid returns attribute"}
@@ -120,11 +120,11 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 
     // ERC-7087 extension for milme type override
     if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeABIEncodedBytes {
-        selectedLastQueryValue := parsedQuery.getLastByNames([]string{"mime.content", "mime.type"})
-        if selectedLastQueryValue.Name == "mime.content" {
-            web3Url.DecodedABIEncodedBytesMimeType = selectedLastQueryValue.Value
-        } else if selectedLastQueryValue.Name == "mime.type" {
-            mimeType := mime.TypeByExtension("." + selectedLastQueryValue.Value)
+        selectedLastQueryParam := parsedQuery.getLastByNames([]string{"mime.content", "mime.type"})
+        if selectedLastQueryParam.Name == "mime.content" {
+            web3Url.DecodedABIEncodedBytesMimeType = selectedLastQueryParam.Value
+        } else if selectedLastQueryParam.Name == "mime.type" {
+            mimeType := mime.TypeByExtension("." + selectedLastQueryParam.Value)
             // If not found, keep the previous value
             if mimeType != "" {
                 web3Url.DecodedABIEncodedBytesMimeType = mimeType

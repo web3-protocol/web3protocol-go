@@ -50,19 +50,17 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
     params := []struct{
         Key string
         Value string}{}
-    parsedQuery, err := url.ParseQuery(urlMainParts["searchParams"])
+    parsedQuery, err := ParseQuery(urlMainParts["searchParams"])
     if err != nil {
         return err
     }
-    for keyName, values := range parsedQuery {
-        for _, value := range values {
-            params = append(params, struct{
-                Key string
-                Value string}{
-                Key: keyName,
-                Value: value,
-            })
-        }
+    for _, queryParam := range parsedQuery {
+        params = append(params, struct{
+            Key string
+            Value string}{
+            Key: queryParam.Name,
+            Value: queryParam.Value,
+        })
     }
     argValues = append(argValues, params)
     web3Url.MethodArgValues = argValues

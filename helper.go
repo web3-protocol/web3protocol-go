@@ -157,13 +157,13 @@ func handleCallContract(client *ethclient.Client, msg ethereum.CallMsg) ([]byte,
 
 // URL.parseQuery does not preserve the order of query attributes
 // This is a version which keep order
-type QueryValue struct {
+type QueryParameter struct {
     Name string
     Value string
 }
-type QueryValues []QueryValue
-func ParseQuery(query string) (values QueryValues, err error) {
-    values = []QueryValue{}
+type QueryParameters []QueryParameter
+func ParseQuery(query string) (params QueryParameters, err error) {
+    params = []QueryParameter{}
 
     for query != "" {
         var key string
@@ -190,7 +190,7 @@ func ParseQuery(query string) (values QueryValues, err error) {
             }
             continue
         }
-        values = append(values, QueryValue{
+        params = append(params, QueryParameter{
             Name: key,
             Value: value,
         })
@@ -199,11 +199,11 @@ func ParseQuery(query string) (values QueryValues, err error) {
     return
 }
 
-func (values *QueryValues) getLastByNames(names []string) (value QueryValue) {
-    for i := len(*values) - 1; i >= 0; i-- {
+func (params *QueryParameters) getLastByNames(names []string) (value QueryParameter) {
+    for i := len(*params) - 1; i >= 0; i-- {
         for _, name := range names {
-            if (*values)[i].Name == name {
-                value = (*values)[i]
+            if (*params)[i].Name == name {
+                value = (*params)[i]
                 return 
             }
         }
