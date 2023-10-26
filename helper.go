@@ -6,6 +6,8 @@ import (
     "net/http"
     "reflect"
     "errors"
+    "strings"
+    "net/url"
 
     "github.com/ethereum/go-ethereum"
     "github.com/ethereum/go-ethereum/accounts/abi"
@@ -146,10 +148,66 @@ func handleCallContract(client *ethclient.Client, msg ethereum.CallMsg) ([]byte,
         if err.Error() == "execution reverted" {
             return nil, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
         } else {
-            // log.Debug(err)
-            return nil, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error"}
+            return nil, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error: " + err.Error()}
         }
     }
     return bs, nil
 }
 
+
+// URL.parseQuery does not preserve the order of query attributes
+// This is a version which keep order
+type QueryValue struct {
+    Name string
+    Value string
+}
+type QueryValues []QueryValue
+func ParseQuery(query string) (values QueryValues, err error) {
+    values = []QueryValue{}
+
+    for query != "" {
+        var key string
+        key, query, _ = strings.Cut(query, "&")
+        if strings.Contains(key, ";") {
+            err = fmt.Errorf("invalid semicolon separator in query")
+            continue
+        }
+        if key == "" {
+            continue
+        }
+        key, value, _ := strings.Cut(key, "=")
+        key, err1 := url.QueryUnescape(key)
+        if err1 != nil {
+            if err == nil {
+                err = err1
+            }
+            continue
+        }
+        value, err1 = url.QueryUnescape(value)
+        if err1 != nil {
+            if err == nil {
+                err = err1
+            }
+            continue
+        }
+        values = append(values, QueryValue{
+            Name: key,
+            Value: value,
+        })
+    }
+
+    return
+}
+
+func (values *QueryValues) getLastByNames(names []string) (value QueryValue) {
+    for i := len(*values) - 1; i >= 0; i-- {
+        for _, name := range names {
+            if (*values)[i].Name == name {
+                value = (*values)[i]
+                return 
+            }
+        }
+    }
+
+    return
+}

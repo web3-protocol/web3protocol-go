@@ -59,32 +59,33 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
     // Return processing: By default ABI-encoded bytes
     web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
     
-    // Process the ?returns / ?returnTypes query
-    parsedQuery, err := url.ParseQuery(urlMainParts["searchParams"])
+    // Process the query values
+    parsedQuery, err := ParseQuery(urlMainParts["searchParams"])
     if err != nil {
-        return err
+        return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse the query of the URL"}
     }
-    returnTypesValue := parsedQuery["returnTypes"]
-    returnsValue := parsedQuery["returns"]
-    if len(returnsValue) > 0 && len(returnTypesValue) > 0 || len(returnsValue) >= 2 || len(returnTypesValue) >= 2 {
-        return &ErrorWithHttpCode{http.StatusBadRequest, "Duplicate return attribute"}
-    }
-    var rType string
-    if len(returnsValue) == 1 {
-        rType = returnsValue[0]
-    } else if len(returnTypesValue) == 1 {
-        rType = returnTypesValue[0]
+    // Check that we only have the allowed one
+    for _, queryValue := range parsedQuery {
+        if queryValue.Name != "returns" &&
+            queryValue.Name != "returnTypes" &&
+            queryValue.Name != "mime.content" &&
+            queryValue.Name != "mime.type" {
+            return &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported query attribute"}
+        }
     }
 
-    if rType != "" {
-        if len(rType) < 2 {
+    // Process the ?returns / ?returnTypes query
+    selectedLastQueryValue := parsedQuery.getLastByNames([]string{"returns", "returnTypes"})
+    returnTypes := selectedLastQueryValue.Value
+    if returnTypes != "" {
+        if len(returnTypes) < 2 {
             return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid returns attribute"}
         }
-        if string(rType[0]) != "(" || string(rType[len(rType) - 1]) != ")" {
+        if string(returnTypes[0]) != "(" || string(returnTypes[len(returnTypes) - 1]) != ")" {
             return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid returns attribute"}
         }
 
-        if rType == "()" {
+        if returnTypes == "()" {
             // We will return the raw bytes, JSON encoded
             web3Url.ContractReturnProcessing = ContractReturnProcessingRawBytesJsonEncoded
         } else {
@@ -92,15 +93,15 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
             web3Url.ContractReturnProcessing = ContractReturnProcessingJsonEncodeValues
 
             // Remove parenthesis
-            rType = rType[1:len(rType) - 1]
+            returnTypes = returnTypes[1:len(returnTypes) - 1]
 
             // Do the types parsing
-            rTypeParts := strings.Split(rType, ",")
+            returnTypesParts := strings.Split(returnTypes, ",")
             web3Url.JsonEncodedValueTypes = []abi.Type{}
-            for _, rTypePart := range rTypeParts {
-                abiType, err := abi.NewType(rTypePart, "", nil)
+            for _, returnTypesPart := range returnTypesParts {
+                abiType, err := abi.NewType(returnTypesPart, "", nil)
                 if err != nil {
-                    return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid type: " + rTypePart}
+                    return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid type: " + returnTypesPart}
                 }
                 web3Url.JsonEncodedValueTypes = append(web3Url.JsonEncodedValueTypes, abiType)
             }
@@ -114,6 +115,20 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
         if len(lastPathnamePartParts) > 1 {
             // If no mime type is found, this will return empty string
             web3Url.DecodedABIEncodedBytesMimeType = mime.TypeByExtension("." + lastPathnamePartParts[len(lastPathnamePartParts) - 1])
+        }
+    }
+
+    // ERC-7087 extension for milme type override
+    if web3Url.ContractReturnProcessing == ContractReturnProcessingDecodeABIEncodedBytes {
+        selectedLastQueryValue := parsedQuery.getLastByNames([]string{"mime.content", "mime.type"})
+        if selectedLastQueryValue.Name == "mime.content" {
+            web3Url.DecodedABIEncodedBytesMimeType = selectedLastQueryValue.Value
+        } else if selectedLastQueryValue.Name == "mime.type" {
+            mimeType := mime.TypeByExtension("." + selectedLastQueryValue.Value)
+            // If not found, keep the previous value
+            if mimeType != "" {
+                web3Url.DecodedABIEncodedBytesMimeType = mimeType
+            }
         }
     }
 

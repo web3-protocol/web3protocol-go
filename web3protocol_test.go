@@ -190,10 +190,13 @@ func TestSuite(t *testing.T) {
 
 
         for _, testGroup := range testGroups.Groups {
-            // We will only process the ERC-6860 /  tests
+            // We will only process some ERCs
             isStandardSupported := false
             for _, standard := range testGroup.Standards {
-                if standard == "ERC-6860" || standard == "ERC-6821" || standard == "ERC-6944" {
+                if standard == "ERC-6860" || // Main, ERC-4804 clarified and modified
+                	standard == "ERC-6821" || // ENS name resolution
+                	standard == "ERC-6944" || // Resource request mode
+                	standard == "ERC-7087" { // Auto mode extensions
                     isStandardSupported = true
                 }
             }
