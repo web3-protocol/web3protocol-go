@@ -194,9 +194,9 @@ func TestSuite(t *testing.T) {
             isStandardSupported := false
             for _, standard := range testGroup.Standards {
                 if standard == "ERC-6860" || // Main, ERC-4804 clarified and modified
-                	standard == "ERC-6821" || // ENS name resolution
-                	standard == "ERC-6944" || // Resource request mode
-                	standard == "ERC-7087" { // Auto mode extensions
+                    standard == "ERC-6821" || // ENS name resolution
+                    standard == "ERC-6944" || // Resource request mode
+                    standard == "ERC-7087" { // Auto mode extensions
                     isStandardSupported = true
                 }
             }
@@ -302,18 +302,18 @@ func TestSuite(t *testing.T) {
                                     assert.Equal(t, methodArgValue.Value, parsedUrl.MethodArgValues[i])
                                 }
                             }
-                            if len(test.JsonEncodedValueTypes) > 0 {
-                                assert.Equal(t, len(test.JsonEncodedValueTypes), len(parsedUrl.JsonEncodedValueTypes), "Unexpected number of arguments")
-                                for i, methodReturn := range test.JsonEncodedValueTypes {
-                                    assert.Equal(t, methodReturn.Type, parsedUrl.JsonEncodedValueTypes[i].String())
-                                }
-                            }
 
                             if test.ContractReturnProcessing != "" {
                                 assert.Equal(t, test.ContractReturnProcessing, parsedUrl.ContractReturnProcessing)
                             }
                             if test.DecodedABIEncodedBytesMimeType != "" {
                                 assert.Equal(t, test.DecodedABIEncodedBytesMimeType, parsedUrl.DecodedABIEncodedBytesMimeType)
+                            }
+                            if len(test.JsonEncodedValueTypes) > 0 {
+                                assert.Equal(t, len(test.JsonEncodedValueTypes), len(parsedUrl.JsonEncodedValueTypes), "Unexpected number of arguments")
+                                for i, methodReturn := range test.JsonEncodedValueTypes {
+                                    assert.Equal(t, methodReturn.Type, parsedUrl.JsonEncodedValueTypes[i].String())
+                                }
                             }
                         } else { // err != nil
                             // If no error was expected, fail
@@ -335,7 +335,7 @@ func TestSuite(t *testing.T) {
 
                     // Test type: Contract return processing
                     } else if testGroups.Type == TestTypeContractReturnProcessing {
-                        // Create and populate a WEB3URL
+                        // Create and populate a Web3URL
                         web3Url := Web3URL{
                             ContractReturnProcessing: test.ContractReturnProcessing,
                             DecodedABIEncodedBytesMimeType: test.DecodedABIEncodedBytesMimeType,
