@@ -17,6 +17,7 @@ import (
 
 type AbiType struct {
     Type string
+    Components []AbiType
 }
 
 // Mostly to workaround the fact that
@@ -258,7 +259,25 @@ func TestSuite(t *testing.T) {
                             if len(test.MethodArgs) > 0 {
                                 assert.Equal(t, len(test.MethodArgs), len(parsedUrl.MethodArgs), "Unexpected number of arguments")
                                 for i, methodArg := range test.MethodArgs {
-                                    assert.Equal(t, methodArg.Type, parsedUrl.MethodArgs[i].String())
+                                    expectedTypeStr := methodArg.Type
+                                    // If a tuple : Determine "the unparsed string for
+                                    // deriving signatures" to compare it
+                                    if len(expectedTypeStr) >= 5 && expectedTypeStr[0:5] == "tuple" {
+                                        components := []abi.ArgumentMarshaling{}
+                                        for _, component := range methodArg.Components {
+                                            components = append(components, abi.ArgumentMarshaling{
+                                                Name: "xx", // This is necessary, or err
+                                                Type: component.Type,
+                                            })
+                                        }
+                                        tupleType, err := abi.NewType("tuple[]", "", components)
+                                        if err != nil {
+                                            panic(err)
+                                        }
+                                        expectedTypeStr = tupleType.String()
+                                    }
+
+                                    assert.Equal(t, expectedTypeStr, parsedUrl.MethodArgs[i].String())
                                 }
                             }
                             if len(test.MethodArgValues) > 0 {
@@ -286,9 +305,12 @@ func TestSuite(t *testing.T) {
                                                 argValue = append(argValue, entry.(string))
                                             }
                                             methodArgValue.Value = argValue
-                                        case "(string,string)[]":
-                                            // A bit of hardcoding here, with "Key" and "Value"
+                                        case "tuple[]":
+                                            // Some hardcoding here, expecting
+                                            // (string,string)[] and 
+                                            // with "Key" and "Value"
                                             // Will not work in other cases
+                                            // To rework when necessary
                                             argValue := []struct{Key, Value string}{}
                                             for _, entry := range methodArgValue.Value.([]interface{}) {
                                                 newEntry := struct{Key, Value string}{

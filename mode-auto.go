@@ -15,8 +15,8 @@ import(
 )
 
 func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string]string) (err error) {
-    // Special case : No path : we call empty calldata
-    if urlMainParts["pathname"] == "" {
+    // Special case : No path, or "/" : we call empty calldata
+    if urlMainParts["pathname"] == "" || urlMainParts["pathname"] == "/" {
         web3Url.ContractCallMode = ContractCallModeCalldata
         web3Url.Calldata = []byte{}
         web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
@@ -256,14 +256,13 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
     } else {
         argValueStr := ss[0]
 
-        n := new(big.Int)
-        n, success := n.SetString(argValueStr, 10)
-        if success {
-            // Check that positive
-            if n.Cmp(new(big.Int)) == -1 {
-                err = &ErrorWithHttpCode{http.StatusBadRequest, "Number is negative: " + argValueStr}
-                return
-            }
+        // uint256 autodetection
+        var numberRegexp *regexp.Regexp
+        numberRegexp, _ = regexp.Compile(`^[0-9]+$`)
+        matches := numberRegexp.FindStringSubmatch(argValueStr)
+        if matches != nil {
+            n := new(big.Int)
+            n, _ = n.SetString(argValueStr, 10)
             // treat it as uint256
             typeName = "uint256"
             abiType, _ = abi.NewType(typeName, "", nil)
@@ -271,6 +270,7 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
             return
         }
 
+        // Hex address, bytes32, bytes autodetection
         if has0xPrefix(argValueStr) && isHex(argValueStr[2:]) {
             if len(argValueStr) == 40+2 {
                 argValue = common.HexToAddress(argValueStr)
@@ -290,7 +290,7 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
             }
         }
 
-        // parse as domain name
+        // Domain name address autodetection
         var addr common.Address
         addr, _, err = client.getAddressFromNameService(nsChain, argValueStr)
         if err == nil {

@@ -101,9 +101,9 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
         return common.HexToAddress(nameWithSuffix), 0, nil
     }
 
-    // Not an address? It now has to have a dot to be a domain name, or it is just an invalid address
+    // Not a domain name? It now has to have a dot to be a domain name, or it is just an invalid address
     if len(strings.Split(nameWithSuffix, ".")) == 1 {
-        return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "Unrecognized address"}
+        return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "Unrecognized domain name"}
     }
 
     nsInfo, rpc, we := client.getConfigs(nameServiceChain, nameWithSuffix)
