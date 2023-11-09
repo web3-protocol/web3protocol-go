@@ -74,6 +74,17 @@ func JsonEncodeAbiTypeValue(arg abi.Type, value interface{}) (result interface{}
                 result = append(result.([]interface{}), subResult)
             }
 
+        case abi.TupleTy:
+            result = make([]interface{}, 0)
+            rv := reflect.ValueOf(value)
+            for i := 0; i < rv.NumField(); i++ {
+                subResult, err := JsonEncodeAbiTypeValue(*arg.TupleElems[i], rv.Field(i).Interface())
+                if err != nil {
+                    return result, err
+                }
+                result = append(result.([]interface{}), subResult)
+            }
+
         default:
             err = errors.New(fmt.Sprintf("Unsupported type: 0x%x", arg.T));
     }

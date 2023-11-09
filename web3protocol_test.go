@@ -333,8 +333,13 @@ func TestSuite(t *testing.T) {
                             }
                             if len(test.JsonEncodedValueTypes) > 0 {
                                 assert.Equal(t, len(test.JsonEncodedValueTypes), len(parsedUrl.JsonEncodedValueTypes), "Unexpected number of arguments")
-                                for i, methodReturn := range test.JsonEncodedValueTypes {
-                                    assert.Equal(t, methodReturn.Type, parsedUrl.JsonEncodedValueTypes[i].String())
+                                for i, JsonEncodedValueType := range test.JsonEncodedValueTypes {
+                                    argMarshaling := testAbiTypeToAbiArgumentMarshaling(JsonEncodedValueType)
+                                    abiType, err := abi.NewType(argMarshaling.Type, "", argMarshaling.Components)
+                                    if err != nil {
+                                        assert.Fail(t, "Unexpected error", err)
+                                    }
+                                    assert.Equal(t, abiType.String(), parsedUrl.JsonEncodedValueTypes[i].String())
                                 }
                             }
                         } else { // err != nil
@@ -461,4 +466,16 @@ func TestSuite(t *testing.T) {
             }
         }
     }
+}
+
+// Convert a test AbiType to a go-ethereum abi.ArgumentMarshaling
+// Recursive
+func testAbiTypeToAbiArgumentMarshaling(abiType AbiType) (argMarshaling abi.ArgumentMarshaling) {
+    argMarshaling.Type = abiType.Type
+    argMarshaling.Name = "x"
+    for _, component := range abiType.Components {
+        argMarshaling.Components = append(argMarshaling.Components, testAbiTypeToAbiArgumentMarshaling(component))
+    }
+
+    return
 }

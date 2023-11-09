@@ -9,6 +9,7 @@ import(
     "regexp"
     "strconv"
     "fmt"
+    "errors"
 
     "github.com/ethereum/go-ethereum/accounts/abi"
     "github.com/ethereum/go-ethereum/common"
@@ -96,15 +97,19 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
             returnTypes = returnTypes[1:len(returnTypes) - 1]
 
             // Do the types parsing
-            returnTypesParts := strings.Split(returnTypes, ",")
-            web3Url.JsonEncodedValueTypes = []abi.Type{}
-            for _, returnTypesPart := range returnTypesParts {
-                abiType, err := abi.NewType(returnTypesPart, "", nil)
+            argMarshalings, err := parseReturnSignature(returnTypes)
+            if err != nil {
+                return err
+            }
+            // Convert the abi.ArgumentMarshaling into proper abi.Types
+            for _, argMarshaling := range argMarshalings {
+                abiType, err := abi.NewType(argMarshaling.Type, "", argMarshaling.Components)
                 if err != nil {
-                    return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid type: " + returnTypesPart}
+                    // We should not enter here, double checking
+                    return errors.New("Return attribute processing error: " + argMarshaling.Type);
                 }
                 web3Url.JsonEncodedValueTypes = append(web3Url.JsonEncodedValueTypes, abiType)
-            }
+            }            
         }
     }
 
@@ -134,11 +139,6 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 
     return
 }
-
-
-
-
-
 
 // parseArgument parses a [TYPE!]VALUE string into an abi.Type. The type will be auto-detected if TYPE not provided
 func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.Type, typeName string, argValue interface{}, err error) {
@@ -304,3 +304,58 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
     return
 }
 
+// Recursively parse the ?returns= signature
+// It follows the syntax of the argument part of the ABI method signature
+func parseReturnSignature(text string) (result []abi.ArgumentMarshaling, err error) {
+    // Separate parts
+    parts := []string{}
+    if len(text) > 0 {
+        tupleDeepness := 0
+        lastCommaPos := -1
+        for i, char := range text {
+            if char == []rune("(")[0] {
+                tupleDeepness++
+            } else if char == []rune(")")[0] {
+                tupleDeepness--
+            } else if char == []rune(",")[0] && tupleDeepness == 0 {
+                parts = append(parts, string([]rune(text)[lastCommaPos + 1:i]))
+                lastCommaPos = i
+            }
+        }
+        parts = append(parts, string([]rune(text)[lastCommaPos + 1:]))
+    }
+
+    // Process parts
+    for _, part := range parts {
+        // Look for tuple
+        tupleRegexp, _ := regexp.Compile(`^\((?P<tupleComponents>.+)\)(?P<arrayDef>[\[\]0-9]*)$`)
+        tupleMatches := tupleRegexp.FindStringSubmatch(part)
+        if len(tupleMatches) > 0 {
+            tupleComponents, err := parseReturnSignature(tupleMatches[1])
+            if err != nil {
+                return result, err
+            }
+            result = append(result, abi.ArgumentMarshaling{Type: "tuple" + tupleMatches[2], Name: "x", Components: tupleComponents})
+        // Basic type
+        } else {
+            if part == "" {
+                return result, &ErrorWithHttpCode{http.StatusBadRequest, "Return attribute: missing type"}
+            }
+
+            // Aliases uint and int are allowed
+            if part == "uint" {
+                part = "uint256"
+            } else if part == "int" {
+                part = "int256"
+            }
+
+            _, err := abi.NewType(part, "", nil)
+            if err != nil {
+                return result, &ErrorWithHttpCode{http.StatusBadRequest, "Return attribute: Invalid type: " + part}
+            }
+            result = append(result, abi.ArgumentMarshaling{Type: part, Name: "x"})
+        }
+    }
+
+    return
+}
