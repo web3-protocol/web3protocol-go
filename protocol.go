@@ -5,6 +5,8 @@ import (
     "strconv"
     "encoding/json"
     "fmt"
+    "io"
+    "bytes"
     "errors"
     "net/http"
     "strings"
@@ -102,12 +104,13 @@ type FetchedWeb3URL struct {
     ContractReturn []byte
 
     // The processed output, to be returned by the browser
-    Output []byte
+    Output io.Reader
     // The HTTP code to be returned by the browser
     HttpCode int
     // The HTTP headers to be returned by the browser
     HttpHeaders map[string]string
 }
+
 
 
 /**
@@ -369,7 +372,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         if err != nil {
             return fetchedWeb3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
         }
-        fetchedWeb3Url.Output = unpackedValues[0].([]byte)
+        fetchedWeb3Url.Output = bytes.NewReader(unpackedValues[0].([]byte))
         fetchedWeb3Url.HttpCode = 200
 
         // If a MIME type was hinted, inject it
@@ -383,7 +386,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         if err != nil {
             return fetchedWeb3Url, err
         }
-        fetchedWeb3Url.Output = jsonEncodedOutput
+        fetchedWeb3Url.Output = bytes.NewReader(jsonEncodedOutput)
         fetchedWeb3Url.HttpCode = 200
         fetchedWeb3Url.HttpHeaders["Content-Type"] = "application/json";
 
@@ -416,7 +419,7 @@ func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []b
         if err != nil {
             return fetchedWeb3Url, err
         }
-        fetchedWeb3Url.Output = jsonEncodedOutput
+        fetchedWeb3Url.Output = bytes.NewReader(jsonEncodedOutput)
         fetchedWeb3Url.HttpCode = 200
         fetchedWeb3Url.HttpHeaders["Content-Type"] = "application/json";
 
