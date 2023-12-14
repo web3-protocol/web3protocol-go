@@ -1,6 +1,6 @@
 # web3protocol-go
 
-Parse and execute [ERC-6860](https://eips.ethereum.org/EIPS/eip-6860) ``web3://`` URLs.
+Parse and execute [ERC-6860 / ERC-4804 ``web3://`` protocol](https://eips.ethereum.org/EIPS/eip-6860) URLs.
 
 ## Usage
 
