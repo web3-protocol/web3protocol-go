@@ -165,11 +165,11 @@ func TestSuite(t *testing.T) {
 
     // Test files
     files := []string{
-        // "tests/parsing-base.toml",
-        // "tests/parsing-mode-manual.toml",
-        // "tests/parsing-mode-auto.toml",
-        // "tests/parsing-mode-resource-request.toml",
-        // "tests/contract-return-processing.toml",
+        "tests/parsing-base.toml",
+        "tests/parsing-mode-manual.toml",
+        "tests/parsing-mode-auto.toml",
+        "tests/parsing-mode-resource-request.toml",
+        "tests/contract-return-processing.toml",
         "tests/fetch.toml",
     }
     for _, file := range files {

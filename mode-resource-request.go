@@ -128,10 +128,11 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 				err = fmt.Errorf("invalid body(string) %v", unpackedValues[1])
 				return
 		}
+		// Custom reader, to handle the fetching of various chunks
 		fetchedWeb3Url.Output = &ResourceRequestReader{
 			Client: client,
 			FetchedWeb3URL: fetchedWeb3Url,
-			Body: []byte(body),
+			Chunk: []byte(body),
 			Cursor: 0,
 			NextChunkUrl: nextChunkUrl,
 		}
@@ -143,22 +144,22 @@ type ResourceRequestReader struct {
 	Client *Client
 	FetchedWeb3URL *FetchedWeb3URL
 	// Content of the last chunk call
-	Body []byte
+	Chunk []byte
 	Cursor int
 	NextChunkUrl string
 }
 
 func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
 	// Still bytes to return in the current body chunk? Return it.
-	if rrr.Cursor < len(rrr.Body) {
-		remainingSize := len(rrr.Body) - rrr.Cursor
+	if rrr.Cursor < len(rrr.Chunk) {
+		remainingSize := len(rrr.Chunk) - rrr.Cursor
 		
 		if len(p) >= remainingSize {
-			copy(p, rrr.Body[rrr.Cursor:])
+			copy(p, rrr.Chunk[rrr.Cursor:])
 			readBytes = remainingSize
 			rrr.Cursor += readBytes
 		} else {
-			copy(p, rrr.Body[rrr.Cursor:rrr.Cursor + len(p)])
+			copy(p, rrr.Chunk[rrr.Cursor:rrr.Cursor + len(p)])
 			readBytes = len(p)
 			rrr.Cursor += readBytes
 		}
@@ -213,7 +214,7 @@ func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
 	if !ok {
 			return 0, err
 	}
-	rrr.Body = []byte(body)
+	rrr.Chunk = []byte(body)
 	rrr.Cursor = 0
 
 	// Find next chunk in headers

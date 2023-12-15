@@ -14,7 +14,9 @@ fetchedWeb3Url, err := client.FetchUrl("web3://terraformnavigator.eth/view/1234"
 
 fmt.Println("HTTP return code:", fetchedWeb3Url.HttpCode)
 fmt.Printf("HTTP return headers: %+v\n", fetchedWeb3Url.HttpHeaders)
-fmt.Println("Output bytes", fetchedWeb3Url.Output)
+
+output, err := ioutil.ReadAll(fetchedWeb3Url.Output)
+fmt.Println("Output bytes", output)
 ```
 
 On top of the result, ``fetchedWeb3Url`` contains a lot more details on the processing of the call.
