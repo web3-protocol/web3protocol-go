@@ -63,7 +63,7 @@ func JsonEncodeAbiTypeValue(arg abi.Type, value interface{}) (result interface{}
             result = fmt.Sprintf("0x%x", value)
 
         case abi.SliceTy, abi.ArrayTy:
-            ty, _ := abi.NewType(arg.Elem.String(), "", nil)
+            ty := *arg.Elem
             result = make([]interface{}, 0)
             rv := reflect.ValueOf(value)
             for i := 0; i < rv.Len(); i++ {
