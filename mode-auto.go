@@ -152,6 +152,7 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
 
     ss := strings.Split(decodedArgument, "!")
 
+    // Type specified
     if len(ss) >= 2 {
         typeName = ss[0]
         argValueStr := strings.Join(ss[1:], "!")
@@ -288,6 +289,14 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
                 abiType, _ = abi.NewType(typeName, "", nil)
                 return
             }
+        }
+
+        // Bool autodetection
+        if argValueStr == "true" || argValueStr == "false" {
+            argValue = argValueStr == "true"
+            typeName = "bool"
+            abiType, _ = abi.NewType(typeName, "", nil)
+            return
         }
 
         // Domain name address autodetection
