@@ -198,7 +198,9 @@ func TestSuite(t *testing.T) {
                 if standard == "ERC-6860" || // Main, ERC-4804 clarified and modified
                     standard == "ERC-6821" || // ENS name resolution
                     standard == "ERC-6944" || // Resource request mode
-                    standard == "ERC-7087" { // Auto mode extensions
+                    standard == "ERC-7087" || // MIME type for auto mode
+                    standard == "ERC-7617" || // Chunk support for resource request mode
+                    standard == "ERC-7618" { // Content-encoding for resource request mode
                     isStandardSupported = true
                 }
             }
@@ -381,15 +383,15 @@ func TestSuite(t *testing.T) {
                         // Execute the processing
                         fetchedWeb3Url, err := client.ProcessContractReturn(&web3Url, contractReturn)
 
+                        var output []byte
+                        if err == nil {
+                            output, err = ioutil.ReadAll(fetchedWeb3Url.Output)
+                        }
+
                         if err == nil {
                             // If we were expecting an error, fail
                             if test.Error.Label != "" || test.Error.HttpCode > 0 {
                                 assert.Fail(t, "An error was expected")
-                            }
-
-                            output, err := ioutil.ReadAll(fetchedWeb3Url.Output)
-                            if err != nil {
-                              assert.Fail(t, "Error reading the output")
                             }
                             if test.Output != "" {
                                 testOutput := common.FromHex(test.Output)

@@ -7,8 +7,11 @@ import (
     "fmt"
     "io"
     "strconv"
+    "compress/gzip"
 
     "github.com/ethereum/go-ethereum/accounts/abi"
+    // "github.com/ethereum/go-ethereum/common"
+    "github.com/andybalholm/brotli"
 )
 
 // Step 1 : Process the web3:// url
@@ -128,13 +131,53 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
         err = fmt.Errorf("invalid body(string) %v", unpackedValues[1])
         return
     }
-    // Custom reader, to handle the fetching of various chunks
+    // Custom reader, to handle ERC-7617 chunking
     fetchedWeb3Url.Output = &ResourceRequestReader{
       Client: client,
       FetchedWeb3URL: fetchedWeb3Url,
       Chunk: []byte(body),
       Cursor: 0,
       NextChunkUrl: nextChunkUrl,
+    }
+
+    //
+    // ERC-7618 : Handle the decompression of data, when Content-Encoding is provided
+    //
+
+    // Make a mapping of the lowercase headers name pointing to the original case
+    headersLowercase := make(map[string]string)
+    for headerName, _ := range fetchedWeb3Url.HttpHeaders {
+      headersLowercase[strings.ToLower(headerName)] = headerName
+    }
+
+    // Do we have a content-encoding header?
+    contentEncodingHeaderName, ok := headersLowercase["content-encoding"]
+    if ok {
+      // Gzip support
+      if fetchedWeb3Url.HttpHeaders[contentEncodingHeaderName] == "gzip" {
+        // Add the decompression reader
+        decompressionReader, err := gzip.NewReader(fetchedWeb3Url.Output)
+        if err != nil {
+            return &ErrorWithHttpCode{http.StatusBadRequest, "Gzip decompression error: " + err.Error()}
+        }
+        fetchedWeb3Url.Output = decompressionReader
+        // Add the error wrapper reader
+        fetchedWeb3Url.Output = &PrefixDecompressionErrorReader{Reader: fetchedWeb3Url.Output}
+
+        // Remove the content-encoding header
+        delete(fetchedWeb3Url.HttpHeaders, contentEncodingHeaderName)
+      
+      // Brotli support
+      } else if fetchedWeb3Url.HttpHeaders[contentEncodingHeaderName] == "br" {
+        // Add the decompression reader
+        decompressionReader := brotli.NewReader(fetchedWeb3Url.Output)
+        fetchedWeb3Url.Output = decompressionReader
+        // Add the error wrapper reader
+        fetchedWeb3Url.Output = &PrefixDecompressionErrorReader{Reader: fetchedWeb3Url.Output}
+
+        // Remove the content-encoding header
+        delete(fetchedWeb3Url.HttpHeaders, contentEncodingHeaderName)
+      }
     }
 
     return
@@ -149,6 +192,8 @@ type ResourceRequestReader struct {
   NextChunkUrl string
 }
 
+// Return the result of the method call
+// Implements ERC-7617: Support for chunking
 func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
   // Still bytes to return in the current body chunk? Return it.
   if rrr.Cursor < len(rrr.Chunk) {
@@ -217,6 +262,7 @@ func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
   rrr.Chunk = []byte(body)
   rrr.Cursor = 0
 
+  // ERC-7617: Support for chunking
   // Find next chunk in headers
   rrr.NextChunkUrl = ""
   headers, ok := unpackedValues[2].([]struct{
@@ -232,4 +278,21 @@ func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
   }
 
   return rrr.Read(p)
+}
+
+
+type PrefixDecompressionErrorReader struct {
+  Reader io.Reader
+}
+
+func (r *PrefixDecompressionErrorReader) Read(p []byte) (readBytes int, err error) {
+  readBytes, err = r.Reader.Read(p)
+  if err != nil {
+    // The brotli libs prefix his errors with "brotli: ": Put a little more helpful error message
+    if strings.HasPrefix(err.Error(), "brotli: ") {
+      err = &ErrorWithHttpCode{http.StatusBadRequest, "Brotli decompression error: " + strings.TrimPrefix(err.Error(), "brotli: ")}
+    }
+  }
+
+  return
 }
