@@ -128,7 +128,12 @@ func TestSuite(t *testing.T) {
                 ChainId: 11155111,
                 ShortName: "sep",
                 RPC: "https://ethereum-sepolia.publicnode.com",
-                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{},
+                DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
+                    DomainNameServiceENS: DomainNameServiceChainConfig{
+                        Id: DomainNameServiceENS,
+                        ResolverAddress: common.HexToAddress("0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"),
+                    },
+                },
             },
             3334: ChainConfig{
                 ChainId: 3334,

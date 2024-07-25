@@ -169,7 +169,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
     }
 
     // Parse the main structure of the URL
-    web3UrlRegexp, err := regexp.Compile(`^(?P<protocol>[^:]+):\/\/(?P<hostname>[^:\/?]+)(:(?P<chainId>[1-9][0-9]*))?(?P<path>(?P<pathname>\/[^?]*)?([?](?P<searchParams>.*))?)?$`)
+    web3UrlRegexp, err := regexp.Compile(`^(?P<protocol>[^:]+):\/\/(?P<hostname>[^:\/?#]+)(:(?P<chainId>[1-9][0-9]*))?(?P<path>(?P<pathname>\/[^?#]*)?([?](?P<searchParams>[^#]*))?)?(#(?P<fragment>.*)?)?$`)
     if err != nil {
         return
     }
