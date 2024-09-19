@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+
 	// log "github.com/sirupsen/logrus"
 	"golang.org/x/net/idna"
 
@@ -179,8 +180,11 @@ func (client *Client) resolve(ethClient *ethclient.Client, nameServiceChain int,
 		return common.Address{}, 0, e
 	}
 	bs, err := ethClient.CallContract(context.Background(), msg, nil)
-	if err != nil || common.Bytes2Hex(bs) == EmptyAddress {
+	if err != nil {
 		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
+	}
+	if common.Bytes2Hex(bs) == EmptyAddress {
+		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusNotFound, "empty address"}
 	}
 	res, e := parseOutput(bs, "address")
 	if e != nil {
