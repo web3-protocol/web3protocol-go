@@ -15,16 +15,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string]string) (err error) {
+func (client *Client) parseAutoModeUrl(web3Url *Web3URL) (err error) {
 	// Special case : No path, or "/" : we call empty calldata
-	if urlMainParts["pathname"] == "" || urlMainParts["pathname"] == "/" {
+	if web3Url.UrlParts.Path == "" || web3Url.UrlParts.Path == "/" {
 		web3Url.ContractCallMode = ContractCallModeCalldata
 		web3Url.Calldata = []byte{}
 		web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
 		return
 	}
 
-	pathnameParts := strings.Split(urlMainParts["pathname"], "/")
+	pathnameParts := strings.Split(web3Url.UrlParts.Path, "/")
 
 	// Get method name
 	methodName := pathnameParts[1]
@@ -61,7 +61,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL, urlMainParts map[string
 	web3Url.ContractReturnProcessing = ContractReturnProcessingDecodeABIEncodedBytes
 
 	// Process the query values
-	parsedQuery, err := ParseQuery(urlMainParts["searchParams"])
+	parsedQuery, err := ParseQuery(web3Url.UrlParts.Query)
 	if err != nil {
 		return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse the query of the URL"}
 	}

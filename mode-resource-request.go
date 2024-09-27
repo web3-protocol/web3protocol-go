@@ -10,12 +10,12 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	// "github.com/ethereum/go-ethereum/common"
 	"github.com/andybalholm/brotli"
 )
 
+
 // Step 1 : Process the web3:// url
-func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts map[string]string) (err error) {
+func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL) (err error) {
 
 	// For this mode, we call a specific function
 	web3Url.ContractCallMode = ContractCallModeMethod
@@ -35,7 +35,7 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
 	argValues := make([]interface{}, 0)
 
 	// Process path
-	pathnameParts := strings.Split(urlMainParts["pathname"], "/")
+	pathnameParts := strings.Split(web3Url.UrlParts.Path, "/")
 	pathnamePartsToSend := pathnameParts[1:]
 	// Remove empty strings at the end (e.g. /boo///)
 	for len(pathnamePartsToSend) > 0 && pathnamePartsToSend[len(pathnamePartsToSend)-1] == "" {
@@ -56,7 +56,7 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
 		Key   string
 		Value string
 	}{}
-	parsedQuery, err := ParseQuery(urlMainParts["searchParams"])
+	parsedQuery, err := ParseQuery(web3Url.UrlParts.Query)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,38 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL, urlMainParts
 	return
 }
 
-// Step 3 : We have the contract return, process it
+// Step 2 : Attempt early response
+func (client *Client) AttemptEarlyResourceRequestModeResponse(web3Url *Web3URL) (fetchedWeb3Url FetchedWeb3URL, success bool, err error) {
+	
+	// Lookup if we have an chain caching tracker for the chain of the request
+	chainCachingTracker, ok := client.ResourceRequestCachingTracker.GetChainCachingTracker(web3Url.ChainId)
+	if ok {
+		// Lookup if we have an entry in the caching tracker
+		resourceCachingInfos, ok := chainCachingTracker.GetResourceCachingInfos(web3Url.ContractAddress, SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues))
+		if ok {
+			// Make a lowercase version of the web3Url.HttpHeaders
+			httpHeadersLowercase := make(map[string]string)
+			for headerName, headerValue := range web3Url.HttpHeaders {
+				httpHeadersLowercase[strings.ToLower(headerName)] = headerValue
+			}
+
+			// If the request is asking for an ETag check, do it
+			_, hasIfNoneMatchHeader := httpHeadersLowercase["if-none-match"]
+			if hasIfNoneMatchHeader && httpHeadersLowercase["if-none-match"] != "" && httpHeadersLowercase["if-none-match"] == resourceCachingInfos.ETag {
+				// Resource has not been modified
+				fetchedWeb3Url.HttpCode = http.StatusNotModified
+				fetchedWeb3Url.HttpHeaders = make(map[string]string)
+				fetchedWeb3Url.HttpHeaders["ETag"] = resourceCachingInfos.ETag
+				success = true
+				return
+			}
+		}
+	}
+
+	return
+}
+
+// Step 4 : We have the contract return, process it
 func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *FetchedWeb3URL, web3Url *Web3URL, contractReturn []byte) (err error) {
 
 	// Preparing the ABI data structure with which we will decode the contract output
@@ -143,6 +174,7 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 		NextChunkUrl:   nextChunkUrl,
 	}
 
+
 	//
 	// ERC-7618 : Handle the decompression of data, when Content-Encoding is provided
 	//
@@ -181,6 +213,39 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 			// Remove the content-encoding header
 			delete(fetchedWeb3Url.HttpHeaders, contentEncodingHeaderName)
 		}
+	}
+
+
+	//
+	// ERC-7761 : Cache Invalidation
+	//
+
+	// Get the cache control header directives
+	cacheControlHeaderDirectives := map[string]string{}
+	cacheControlLowercaseHeaderName, ok := headersLowercase["cache-control"]
+	if ok {
+		cacheControlHeaderDirectives = GetCacheControlHeaderDirectives(fetchedWeb3Url.HttpHeaders[cacheControlLowercaseHeaderName])
+	}
+	
+	// Check if there is the "evm-events" cache control header directive
+	_, hasEvmEventsCacheControlHeaderDirective := cacheControlHeaderDirectives["evm-events"]
+	// If so, we will process the caching headers
+	if hasEvmEventsCacheControlHeaderDirective {
+
+		// Check if there is an ETag header
+		etagLowercaseHeaderName, ok := headersLowercase["etag"]
+		if ok {
+			// Set the resource caching infos
+			chainCachingTracker := client.ResourceRequestCachingTracker.GetOrCreateChainCachingTracker(web3Url.ChainId)
+			chainCachingTracker.SetResourceCachingInfos(
+				web3Url.ContractAddress, 
+				SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues), 
+				ResourceCachingInfos{
+					ETag: fetchedWeb3Url.HttpHeaders[etagLowercaseHeaderName],
+				})
+fmt.Printf("client.ResourceRequestCachingTracker %+v\n", client.ResourceRequestCachingTracker)
+		}
+
 	}
 
 	return
@@ -228,7 +293,7 @@ func (rrr *ResourceRequestReader) Read(p []byte) (readBytes int, err error) {
 	}
 
 	// Fetch the URL
-	nextChunkParsedUrl, err := rrr.Client.ParseUrl(rrr.NextChunkUrl)
+	nextChunkParsedUrl, err := rrr.Client.ParseUrl(rrr.NextChunkUrl, map[string]string{})
 	if err != nil {
 		return 0, err
 	}
@@ -299,3 +364,4 @@ func (r *PrefixDecompressionErrorReader) Read(p []byte) (readBytes int, err erro
 
 	return
 }
+

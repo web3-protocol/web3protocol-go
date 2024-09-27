@@ -119,6 +119,22 @@ func methodCallToCalldata(methodName string, methodArgTypes []abi.Type, methodAr
 	return
 }
 
+// Get an ethClient for a given chain
+func (client *Client) getEthClient(chain int) (ethClient *ethclient.Client, err error) {
+	// Ensure the chain config entry exists
+	if _, ok := client.Config.Chains[chain]; !ok {
+		err = errors.New("chain not found")
+		return
+	}
+
+	ethClient, err = ethclient.Dial(client.Config.Chains[chain].RPC)
+	if err != nil {
+		err = errors.New("could not connect to chain")
+	}
+
+	return
+}
+
 // Call a contract with calldata
 func (client *Client) callContract(contract common.Address, chain int, calldata []byte) (contractReturn []byte, err error) {
 	// Prepare the ethereum message to send
@@ -134,7 +150,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	}
 
 	// Create connection
-	ethClient, err := ethclient.Dial(client.Config.Chains[chain].RPC)
+	ethClient, err := client.getEthClient(chain)
 	if err != nil {
 		return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
 	}

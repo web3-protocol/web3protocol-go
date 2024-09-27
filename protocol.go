@@ -13,13 +13,20 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/sirupsen/logrus"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 )
 
 type Client struct {
-	Config                    *Config
+	Config *Config
+	Logger *logrus.Logger
+	
+	// Cache for domain name resolution
 	DomainNameResolutionCache *localCache
+
+	// Resource request mode : cache invalidation tracking
+	ResourceRequestCachingTracker ResourceRequestCachingTracker
 }
 
 type DomainNameService string
@@ -59,10 +66,30 @@ const (
 	ContractReturnProcessingDecodeErc5219Request = "decodeErc5219Request"
 )
 
+// A raw splitting of the web3 URL parts
+type ParsedWeb3Url struct {
+	Protocol string
+	Hostname string
+	ChainId string
+
+	// The PathQuery is the full path, including the Pathname and Query
+	PathQuery string
+	Path string
+	Query string
+
+	Fragment string
+}
+
 // This contains a web3:// URL parsed and ready to call the main smartcontract
 type Web3URL struct {
 	// The actual url string "web3://...."
 	Url string
+	// The request HTTP headers
+	HttpHeaders map[string]string
+	
+	// A raw splitting of the web3 URL parts, to be used by the processing
+	// You should not use this directly outside of this package
+	UrlParts ParsedWeb3Url
 
 	// If the host was a domain name, what domain name service was used?
 	HostDomainNameResolver DomainNameService
@@ -122,7 +149,9 @@ func NewClient(config *Config) (client *Client) {
 	client = &Client{
 		Config:                    config,
 		DomainNameResolutionCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
+		Logger:                       logrus.New(),
 	}
+	client.ResourceRequestCachingTracker = NewResourceRequestCachingTracker(client)
 
 	return
 }
@@ -133,12 +162,23 @@ func NewClient(config *Config) (client *Client) {
  * the bytes output and the HTTP code and headers, as well as plenty of informations on
  * how the processing was done.
  */
-func (client *Client) FetchUrl(url string) (fetchedUrl FetchedWeb3URL, err error) {
+func (client *Client) FetchUrl(url string, httpHeaders map[string]string) (fetchedUrl FetchedWeb3URL, err error) {
 	// Parse the URL
-	parsedUrl, err := client.ParseUrl(url)
+	parsedUrl, err := client.ParseUrl(url, httpHeaders)
 	if err != nil {
 		fetchedUrl.ParsedUrl = &parsedUrl
 		return
+	}
+
+	// Attempt to make a response right away, without a contract call : 
+	// We can do it if we know the output has not changed (see ERC-7761 resource request caching)
+	earlyFetchedUrl, success, err := client.AttemptEarlyResponse(&parsedUrl)
+	if err != nil {
+		fetchedUrl.ParsedUrl = &parsedUrl
+		return
+	}
+	if success {
+		return earlyFetchedUrl, nil
 	}
 
 	// Fetch the contract return data
@@ -160,8 +200,9 @@ func (client *Client) FetchUrl(url string) (fetchedUrl FetchedWeb3URL, err error
 /**
  * Step 1 : Parse the URL and determine how we are going to call the main contract.
  */
-func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
+func (client *Client) ParseUrl(url string, httpHeaders map[string]string) (web3Url Web3URL, err error) {
 	web3Url.Url = url
+	web3Url.HttpHeaders = httpHeaders
 
 	// Check that the URL is ASCII only
 	for i := 0; i < len(web3Url.Url); i++ {
@@ -171,7 +212,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 	}
 
 	// Parse the main structure of the URL
-	web3UrlRegexp, err := regexp.Compile(`^(?P<protocol>[^:]+):\/\/(?P<hostname>[^:\/?#]+)(:(?P<chainId>[1-9][0-9]*))?(?P<path>(?P<pathname>\/[^?#]*)?([?](?P<searchParams>[^#]*))?)?(#(?P<fragment>.*)?)?$`)
+	web3UrlRegexp, err := regexp.Compile(`^(?P<protocol>[^:]+):\/\/(?P<hostname>[^:\/?#]+)(:(?P<chainId>[1-9][0-9]*))?(?P<pathQuery>(?P<path>\/[^?#]*)?([?](?P<query>[^#]*))?)?(#(?P<fragment>.*)?)?$`)
 	if err != nil {
 		return
 	}
@@ -179,26 +220,37 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 	if len(matches) == 0 {
 		return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Invalid URL format"}
 	}
-	urlMainParts := map[string]string{}
 	for i, name := range web3UrlRegexp.SubexpNames() {
-		if i != 0 && name != "" {
-			urlMainParts[name] = matches[i]
+		if name == "protocol" {
+			web3Url.UrlParts.Protocol = matches[i]
+		} else if name == "hostname" {
+			web3Url.UrlParts.Hostname = matches[i]
+		} else if name == "chainId" {
+			web3Url.UrlParts.ChainId = matches[i]
+		} else if name == "pathQuery" {
+			web3Url.UrlParts.PathQuery = matches[i]
+		} else if name == "path" {
+			web3Url.UrlParts.Path = matches[i]
+		} else if name == "query" {
+			web3Url.UrlParts.Query = matches[i]
+		} else if name == "fragment" {
+			web3Url.UrlParts.Fragment = matches[i]
 		}
 	}
 
 	// Protocol name: 1 name and alias supported
-	if urlMainParts["protocol"] != "web3" && urlMainParts["protocol"] != "w3" {
+	if web3Url.UrlParts.Protocol != "web3" && web3Url.UrlParts.Protocol != "w3" {
 		return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Protocol name is invalid"}
 	}
 
 	// Default chain is ethereum mainnet
 	// Check if we were explicitely asked to go to another chain
 	web3Url.ChainId = 1
-	if len(urlMainParts["chainId"]) > 0 {
-		chainId, err := strconv.Atoi(urlMainParts["chainId"])
+	if len(web3Url.UrlParts.ChainId) > 0 {
+		chainId, err := strconv.Atoi(web3Url.UrlParts.ChainId)
 		if err != nil {
 			// Regexp should always get us valid numbers, but we could enter here if overflow
-			return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", urlMainParts["chainId"])}
+			return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("Unsupported chain %v", web3Url.UrlParts.ChainId)}
 		}
 		web3Url.ChainId = chainId
 	}
@@ -210,11 +262,11 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 	}
 
 	// Main hostname : We determine if we need hostname resolution, and do it
-	if common.IsHexAddress(urlMainParts["hostname"]) {
-		web3Url.ContractAddress = common.HexToAddress(urlMainParts["hostname"])
+	if common.IsHexAddress(web3Url.UrlParts.Hostname) {
+		web3Url.ContractAddress = common.HexToAddress(web3Url.UrlParts.Hostname)
 	} else {
 		// Determine name suffix
-		hostnameParts := strings.Split(urlMainParts["hostname"], ".")
+		hostnameParts := strings.Split(web3Url.UrlParts.Hostname, ".")
 		if len(hostnameParts) <= 1 {
 			return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Invalid contract address"}
 		}
@@ -228,7 +280,7 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 		// If the chain id was not explicitely requested on the URL, we will use the
 		// "default home" chain id of the name resolution service
 		// (e.g. 1 for .eth, 333 for w3q) as the target chain
-		if len(urlMainParts["chainId"]) == 0 {
+		if len(web3Url.UrlParts.ChainId) == 0 {
 			domainNameService := client.Config.GetDomainNameServiceBySuffix(nameServiceSuffix)
 			if domainNameService == "" || client.Config.DomainNameServices[domainNameService].DefaultChainId == 0 {
 				return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name service suffix: " + nameServiceSuffix}
@@ -254,13 +306,13 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 		var addr common.Address
 		var targetChain int
 		var hit bool
-		cacheKey := fmt.Sprintf("%v:%v", web3Url.HostDomainNameResolverChainId, urlMainParts["hostname"])
+		cacheKey := fmt.Sprintf("%v:%v", web3Url.HostDomainNameResolverChainId, web3Url.UrlParts.Hostname)
 		if client.DomainNameResolutionCache != nil {
 			addr, targetChain, hit = client.DomainNameResolutionCache.get(cacheKey)
 		}
 		if !hit {
 			var err error
-			addr, targetChain, err = client.getAddressFromNameServiceWebHandler(web3Url.HostDomainNameResolverChainId, urlMainParts["hostname"])
+			addr, targetChain, err = client.getAddressFromNameServiceWebHandler(web3Url.HostDomainNameResolverChainId, web3Url.UrlParts.Hostname)
 			if err != nil {
 				return web3Url, err
 			}
@@ -310,11 +362,11 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 
 	// Then process the resolve-mode-specific parts
 	if web3Url.ResolveMode == ResolveModeManual {
-		err = client.parseManualModeUrl(&web3Url, urlMainParts)
+		err = client.parseManualModeUrl(&web3Url)
 	} else if web3Url.ResolveMode == ResolveModeAuto {
-		err = client.parseAutoModeUrl(&web3Url, urlMainParts)
+		err = client.parseAutoModeUrl(&web3Url)
 	} else if web3Url.ResolveMode == ResolveModeResourceRequests {
-		err = client.parseResourceRequestModeUrl(&web3Url, urlMainParts)
+		err = client.parseResourceRequestModeUrl(&web3Url)
 	}
 	if err != nil {
 		return
@@ -324,7 +376,19 @@ func (client *Client) ParseUrl(url string) (web3Url Web3URL, err error) {
 }
 
 /**
- * Step 2: Make the call to the main contract.
+ * Step 2: Attempt an early response which bypass a contract call.
+ */
+func (client *Client) AttemptEarlyResponse(web3Url *Web3URL) (fetchedWeb3Url FetchedWeb3URL, success bool, err error) {
+	// If we are in resource request mode, we check if the resource request is cached
+	if web3Url.ResolveMode == ResolveModeResourceRequests {
+		return client.AttemptEarlyResourceRequestModeResponse(web3Url)
+	}
+
+	return fetchedWeb3Url, false, nil
+}
+
+/**
+ * Step 3: Make the call to the main contract.
  */
 func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []byte, err error) {
 	var calldata []byte
@@ -349,7 +413,7 @@ func (client *Client) FetchContractReturn(web3Url *Web3URL) (contractReturn []by
 }
 
 /**
- * Step 3 : Process the data returned by the main contract.
+ * Step 4 : Process the data returned by the main contract.
  */
 func (client *Client) ProcessContractReturn(web3Url *Web3URL, contractReturn []byte) (fetchedWeb3Url FetchedWeb3URL, err error) {
 	// Add link to the parsedUrl
