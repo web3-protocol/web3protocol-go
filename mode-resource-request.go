@@ -248,7 +248,6 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 				ResourceCachingInfos{
 					ETag: fetchedWeb3Url.HttpHeaders[etagLowercaseHeaderName],
 				})
-fmt.Printf("client.ResourceRequestCachingTracker %+v\n", client.ResourceRequestCachingTracker)
 		}
 
 	}

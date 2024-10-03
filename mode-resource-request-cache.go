@@ -50,7 +50,7 @@ func (c *ResourceRequestCachingTracker) GetOrCreateChainCachingTracker(chainId i
 		}
 
 		// Start the worker that checks for events to be processed
-		go chainCachingTracker.checkEventsWorker(2 * time.Second)
+		go chainCachingTracker.checkEventsWorker(12 * time.Second)
 
 		c.ChainCachingTrackers[chainId] = chainCachingTracker
 	}
@@ -241,7 +241,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 		}
 		return fields
 	}	
-	log.WithFields(logFields(nil)).Debug("Worker started.")
+	log.WithFields(logFields(nil)).Info("Worker started.")
 
 	// Preparing the ethClient
 	ethClient, err := cct.GlobalCachingTracker.Client.getEthClient(cct.ChainId)
@@ -324,7 +324,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 
 					log.WithFields(logFields(logrus.Fields{
 						"contractAddress": logEntry.Address,
-					})).Debug("Cache clear requested for paths ", pathQueries)
+					})).Info("Cache clear requested for paths ", pathQueries)
 					
 					// Delete the caching infos for each pathQuery
 					for _, pathQuery := range pathQueries {
@@ -344,7 +344,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 
 		case <- cct.EventsCheckWorkerStopChan:
 			// Stop signal received, exit goroutine
-			log.WithFields(logFields(nil)).Debug("Stopping the worker.")
+			log.WithFields(logFields(nil)).Info("Stopping the worker.")
 			return
 		}
 	}
@@ -357,16 +357,24 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 func SerializeResourceRequestMethodArgValues(argValues []interface{}) (pathQuery string) {
 	pathQuery = ""
 	pathnameParts := argValues[0].([]string)
-	for _, pathnamePart := range pathnameParts {
-		pathQuery += "/" + url.PathEscape(pathnamePart)
+	if len(pathnameParts) == 0 {
+		pathQuery = "/"
+	} else {
+		for _, pathnamePart := range pathnameParts {
+			pathQuery += "/" + url.PathEscape(pathnamePart)
+		}
 	}
+
 	// Extract the query
 	params := argValues[1].([]struct {
 		Key   string
 		Value string
 	})
-	for _, param := range params {
-		pathQuery += "&" + url.QueryEscape(param.Key) + "=" + url.QueryEscape(param.Value)
+	if len(params) > 0 {
+		pathQuery += "?"
+		for _, param := range params {
+			pathQuery += "&" + url.QueryEscape(param.Key) + "=" + url.QueryEscape(param.Value)
+		}
 	}
 
 	return
