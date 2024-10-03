@@ -16,7 +16,7 @@ import (
 )
 
 // Contains the caching infos of all the resources requested by the client that implements
-// ERC-7761 (includes "evm-events" in the Cache-Control header)
+// ERC-7774 (includes "evm-events" in the Cache-Control header)
 type ResourceRequestCachingTracker struct {
 	// Per-chain caching trackers
 	ChainCachingTrackers map[int]*ResourceRequestChainCachingTracker
@@ -118,7 +118,7 @@ func (c* ResourceRequestChainCachingTracker) Desactivate() {
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
 		"chain": c.ChainId,
-	}).Debug("Cache tracking desactivated, cache cleared.")
+	}).Info("Cache tracking desactivated, cache cleared.")
 }
 
 // The worker that checks for events to be processed is now able to track events
@@ -135,7 +135,7 @@ func (c* ResourceRequestChainCachingTracker) Activate() {
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
 		"chain": c.ChainId,
-	}).Debug("Cache tracking activated.")
+	}).Info("Cache tracking activated.")
 }
 
 func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAddress common.Address, pathQuery string) (resourceCachingInfos ResourceCachingInfos, ok bool) {
@@ -173,7 +173,7 @@ func (c *ResourceRequestChainCachingTracker) SetResourceCachingInfos(contractAdd
 		"chain": c.ChainId,
 		"contractAddress": contractAddress,
 		"etag": resourceCachingInfos.ETag,
-	}).Debug("Cache set for path ", pathQuery)
+	}).Info("Cache infos set for path ", pathQuery)
 }
 
 // Delete the caching infos by pathQuery. Support wildcard pathQuery.
@@ -194,7 +194,7 @@ func (c *ResourceRequestChainCachingTracker) DeleteResourceCachingInfos(contract
 			"domain": "resourceRequestModeCaching",
 			"chain": c.ChainId,
 			"contractAddress": contractAddress,
-		}).Debug("Cache cleared for all paths.")
+		}).Info("Cache infos cleared for all paths.")
 
 	// Otherwise: Single path matching
 	} else {
@@ -211,7 +211,7 @@ func (c *ResourceRequestChainCachingTracker) DeleteResourceCachingInfos(contract
 			"chain": c.ChainId,
 			"contractAddress": contractAddress,
 			"etag": pathCachingInfos.ETag,
-		}).Debug("Cache cleared for path ", pathQuery)
+		}).Info("Cache infos cleared for path ", pathQuery)
 	}
 }
 

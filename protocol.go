@@ -171,7 +171,7 @@ func (client *Client) FetchUrl(url string, httpHeaders map[string]string) (fetch
 	}
 
 	// Attempt to make a response right away, without a contract call : 
-	// We can do it if we know the output has not changed (see ERC-7761 resource request caching)
+	// We can do it if we know the output has not changed (see ERC-7774 resource request caching)
 	earlyFetchedUrl, success, err := client.AttemptEarlyResponse(&parsedUrl)
 	if err != nil {
 		fetchedUrl.ParsedUrl = &parsedUrl

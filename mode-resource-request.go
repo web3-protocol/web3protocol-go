@@ -217,7 +217,7 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 
 
 	//
-	// ERC-7761 : Cache Invalidation
+	// ERC-7774 : Cache Invalidation
 	//
 
 	// Get the cache control header directives
