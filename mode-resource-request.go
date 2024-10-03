@@ -95,11 +95,16 @@ func (client *Client) AttemptEarlyResourceRequestModeResponse(web3Url *Web3URL) 
 
 			// If the request is asking for an ETag check, do it
 			_, hasIfNoneMatchHeader := httpHeadersLowercase["if-none-match"]
-			if hasIfNoneMatchHeader && httpHeadersLowercase["if-none-match"] != "" && httpHeadersLowercase["if-none-match"] == resourceCachingInfos.ETag {
-				// Resource has not been modified
+			// Resource has not been modified
+			if hasIfNoneMatchHeader && httpHeadersLowercase["if-none-match"] != "" && httpHeadersLowercase["if-none-match"] == resourceCachingInfos.ETag {		
+				// Create a 304 response
 				fetchedWeb3Url.HttpCode = http.StatusNotModified
 				fetchedWeb3Url.HttpHeaders = make(map[string]string)
 				fetchedWeb3Url.HttpHeaders["ETag"] = resourceCachingInfos.ETag
+
+				// Add link to the parsedUrl
+				fetchedWeb3Url.ParsedUrl = web3Url
+
 				success = true
 				return
 			}
