@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	golanglru2 "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
 type Client struct {
@@ -25,19 +26,25 @@ type Client struct {
 	// Cache for domain name resolution
 	DomainNameResolutionCache *localCache
 
+	// Resolve mode cache
+	ResolveModeCache *golanglru2.LRU[ResolveModeCacheKey, ResolveMode]
+
 	// Resource request mode : cache invalidation tracking
 	ResourceRequestCachingTracker ResourceRequestCachingTracker
 }
 
-type DomainNameService string
+type ResolveModeCacheKey struct {
+	ChainId         int
+	ContractAddress common.Address
+}
 
+type DomainNameService string
 const (
 	DomainNameServiceENS  = "ens"
 	DomainNameServiceW3NS = "w3ns"
 )
 
 type ResolveMode string
-
 const (
 	ResolveModeAuto             = "auto"
 	ResolveModeManual           = "manual"
@@ -45,14 +52,12 @@ const (
 )
 
 type ContractCallMode string
-
 const (
 	ContractCallModeCalldata = "calldata"
 	ContractCallModeMethod   = "method"
 )
 
 type ContractReturnProcessing string
-
 const (
 	// Expect the whole returned data to be ABI-encoded bytes. Decode.
 	ContractReturnProcessingDecodeABIEncodedBytes = "decodeABIEncodedBytes"
@@ -147,9 +152,10 @@ type FetchedWeb3URL struct {
  */
 func NewClient(config *Config) (client *Client) {
 	client = &Client{
-		Config:                    config,
+		Config: config,
 		DomainNameResolutionCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
-		Logger:                       logrus.New(),
+		ResolveModeCache: golanglru2.NewLRU[ResolveModeCacheKey, ResolveMode](1000, nil, time.Duration(0)),
+		Logger: logrus.New(),
 	}
 	client.ResourceRequestCachingTracker = NewResourceRequestCachingTracker(client)
 
@@ -336,28 +342,38 @@ func (client *Client) ParseUrl(url string, httpHeaders map[string]string) (web3U
 	// - Auto : we parse the path and arguments and send them
 	// - Manual : we forward all the path & arguments as calldata
 	// - ResourceRequest : we parse the path and arguments and send them
-	// Call the resolveMode in the contract
-	resolveModeCalldata, err := methodCallToCalldata("resolveMode", []abi.Type{}, []interface{}{})
-	if err != nil {
-		return
-	}
-	resolveModeReturn, err := client.callContract(web3Url.ContractAddress, web3Url.ChainId, resolveModeCalldata)
-	// Auto : exact match or empty bytes32 value or empty value (method does not exist or return nothing)
-	// or execution reverted
-	if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6175746f00000000000000000000000000000000000000000000000000000000" ||
-		len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "0000000000000000000000000000000000000000000000000000000000000000" ||
-		len(resolveModeReturn) == 0 ||
-		err != nil {
-		web3Url.ResolveMode = ResolveModeAuto
-		// Manual : exact match
-	} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6d616e75616c0000000000000000000000000000000000000000000000000000" {
-		web3Url.ResolveMode = ResolveModeManual
-		// ResourceRequest : exact match
-	} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "3532313900000000000000000000000000000000000000000000000000000000" {
-		web3Url.ResolveMode = ResolveModeResourceRequests
-		// Other cases (method returning non recognized value) : throw an error
+	// See if it is cached
+	resolveModeCacheKey := ResolveModeCacheKey{web3Url.ChainId, web3Url.ContractAddress}
+	resolveMode, resolveModeIsCached := client.ResolveModeCache.Get(resolveModeCacheKey)
+	if resolveModeIsCached {
+		web3Url.ResolveMode = resolveMode
+	// Not cached: Call the resolveMode in the contract
 	} else {
-		return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported resolve mode"}
+		resolveModeCalldata, err := methodCallToCalldata("resolveMode", []abi.Type{}, []interface{}{})
+		if err != nil {
+			return web3Url, err
+		}
+		resolveModeReturn, err := client.callContract(web3Url.ContractAddress, web3Url.ChainId, resolveModeCalldata)
+		// Auto : exact match or empty bytes32 value or empty value (method does not exist or return nothing)
+		// or execution reverted
+		if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6175746f00000000000000000000000000000000000000000000000000000000" ||
+			len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "0000000000000000000000000000000000000000000000000000000000000000" ||
+			len(resolveModeReturn) == 0 ||
+			err != nil {
+			web3Url.ResolveMode = ResolveModeAuto
+			// Manual : exact match
+		} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6d616e75616c0000000000000000000000000000000000000000000000000000" {
+			web3Url.ResolveMode = ResolveModeManual
+			// ResourceRequest : exact match
+		} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "3532313900000000000000000000000000000000000000000000000000000000" {
+			web3Url.ResolveMode = ResolveModeResourceRequests
+			// Other cases (method returning non recognized value) : throw an error
+		} else {
+			return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported resolve mode"}
+		}
+
+		// Cache the resolve mode
+		client.ResolveModeCache.Add(resolveModeCacheKey, web3Url.ResolveMode)
 	}
 
 	// Then process the resolve-mode-specific parts
