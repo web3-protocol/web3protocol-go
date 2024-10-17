@@ -43,7 +43,7 @@ func (c *ResourceRequestCachingTracker) GetOrCreateChainCachingTracker(chainId i
 	if !ok {
 		chainCachingTracker = &ResourceRequestChainCachingTracker{
 			ChainId:              chainId,
-			ResourcesCachingInfos: make(map[common.Address]map[string]ResourceCachingInfos),
+			ResourcesCachingInfos: make(map[common.Address]map[string]*ResourceCachingInfos),
 			EventsCheckWorkerStopChan: make(chan bool),
 			GlobalCachingTracker: c,
 			IsActive: true,
@@ -78,7 +78,7 @@ type ResourceRequestChainCachingTracker struct {
 
 	// The cache of indifidual resources requested by the client
 	// map[contractAddress][pathQuery]
-	ResourcesCachingInfos map[common.Address]map[string]ResourceCachingInfos
+	ResourcesCachingInfos map[common.Address]map[string]*ResourceCachingInfos
 
 	// There is a goroutine worker that checks for events to be processed
 	// This is the channel to stop it
@@ -91,6 +91,11 @@ type ResourceRequestChainCachingTracker struct {
 	GlobalCachingTracker *ResourceRequestCachingTracker
 }
 
+type AddressPathQuery struct {
+	ContractAddress common.Address
+	PathQuery string
+}
+
 // Caching infos for a specific resource
 type ResourceCachingInfos struct {
 	// The last modified date of the resource
@@ -98,6 +103,12 @@ type ResourceCachingInfos struct {
 
 	// The ETag of the resource
 	ETag string
+
+	// Others contract can proxy paths of this contract, and they can indicate with 
+	// '"Cache-Control: evem-events="<contractAddress><pathQuery>"'
+	// to listen for cache clearing events for this contract
+	// So here we store the list of external contracts paths that proxy this resource
+	CacheClearEventListeners []AddressPathQuery
 }
 
 // The worker that checks for events to be processed had issues and is not able to track events,
@@ -113,7 +124,7 @@ func (c* ResourceRequestChainCachingTracker) Desactivate() {
 	c.IsActive = false
 
 	// Clear the cache
-	c.ResourcesCachingInfos = make(map[common.Address]map[string]ResourceCachingInfos)
+	c.ResourcesCachingInfos = make(map[common.Address]map[string]*ResourceCachingInfos)
 
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
@@ -138,7 +149,7 @@ func (c* ResourceRequestChainCachingTracker) Activate() {
 	}).Info("Cache tracking activated.")
 }
 
-func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAddress common.Address, pathQuery string) (resourceCachingInfos ResourceCachingInfos, ok bool) {
+func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAddress common.Address, pathQuery string) (resourceCachingInfos *ResourceCachingInfos, ok bool) {
 	c.Mutex.RLock()
 	defer c.Mutex.RUnlock()
 
@@ -151,7 +162,7 @@ func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAdd
 	return
 }
 
-func (c *ResourceRequestChainCachingTracker) SetResourceCachingInfos(contractAddress common.Address, pathQuery string, resourceCachingInfos ResourceCachingInfos) {
+func (c *ResourceRequestChainCachingTracker) SetResourceCachingInfos(contractAddress common.Address, pathQuery string, resourceCachingInfos *ResourceCachingInfos) {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
@@ -162,18 +173,11 @@ func (c *ResourceRequestChainCachingTracker) SetResourceCachingInfos(contractAdd
 
 	contractResources, ok := c.ResourcesCachingInfos[contractAddress]
 	if !ok {
-		contractResources = make(map[string]ResourceCachingInfos)
+		contractResources = make(map[string]*ResourceCachingInfos)
 		c.ResourcesCachingInfos[contractAddress] = contractResources
 	}
 
 	contractResources[pathQuery] = resourceCachingInfos
-
-	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
-		"domain": "resourceRequestModeCaching",
-		"chain": c.ChainId,
-		"contractAddress": contractAddress,
-		"etag": resourceCachingInfos.ETag,
-	}).Info("Cache infos set for path ", pathQuery)
 }
 
 // Delete the caching infos by pathQuery. Support wildcard pathQuery.
@@ -328,7 +332,17 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					
 					// Delete the caching infos for each pathQuery
 					for _, pathQuery := range pathQueries {
-						cct.DeleteResourceCachingInfos(logEntry.Address, pathQuery)
+						// Fetch the resource caching infos
+						resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
+						if ok {
+							// Delete the cache for the pathQuery
+							cct.DeleteResourceCachingInfos(logEntry.Address, pathQuery)
+
+							// If the resource has listeners for cache clear events, clear them too
+							for _, proxiedCacheClearLocation := range resourceCachingInfos.CacheClearEventListeners {
+								cct.DeleteResourceCachingInfos(proxiedCacheClearLocation.ContractAddress, proxiedCacheClearLocation.PathQuery)
+							}
+						}
 					}
 
 					// We may have got a log more recent than the current block number that we fetched earlier,
@@ -387,11 +401,23 @@ func GetCacheControlHeaderDirectives(headerValue string) (directives map[string]
 	for _, headerPart := range headerParts {
 		headerPart = strings.TrimSpace(headerPart)
 		if headerPart != "" {
+			// Split the directive and its value (if any)
 			headerPartParts := strings.Split(headerPart, "=")
 			if len(headerPartParts) == 1 {
 				directives[headerPartParts[0]] = ""
 			} else {
-				directives[headerPartParts[0]] = headerPartParts[1]
+				// If the value is double-quoted, remove the quotes, and unescape the value
+				value := headerPartParts[1]
+				if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+					value = value[1:len(value)-1]
+					// Proper unescaping of quoted-string according to 
+					// https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.4
+					// to fulfill cache-control directive requirements from
+					// https://www.rfc-editor.org/rfc/rfc9111#section-5.2
+					// would need to be implemented; for now we'll only unescape quotes
+					value = strings.ReplaceAll(value, "\\\"", "\"")
+				}
+				directives[headerPartParts[0]] = value
 			}
 		}
 	}
