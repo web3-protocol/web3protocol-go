@@ -57,12 +57,13 @@ config := Config {
 - [ERC-6860](https://eips.ethereum.org/EIPS/eip-6860) (draft) : the base web3:// protocol with auto and manual mode, basic ENS support. This updates [ERC-4804](https://eips.ethereum.org/EIPS/eip-4804) (final) with clarifications, small fixes and changes.
 - [ERC-6821](https://eips.ethereum.org/EIPS/eip-6821) (draft) : ENS resolution : support for the ``contentcontract`` TXT field to point to a contract in another chain
 - [ERC-6944](https://eips.ethereum.org/EIPS/eip-6944) (draft) / [ERC-5219](https://eips.ethereum.org/EIPS/eip-5219) (final) : New mode offloading some parsing processing on the browser side
-- [ERC-7617](https://github.com/ethereum/ERCs/pull/245) (pending): Add chunk support in ERC-6944 resource request mode
-- [ERC-7618](https://github.com/ethereum/ERCs/pull/246) (pending): Add Content-encoding handling in ERC-6944 resource request mode
+- [ERC-7617](https://eips.ethereum.org/EIPS/eip-7617) (draft): Add chunk support in ERC-6944 resource request mode
+- [ERC-7618](https://eips.ethereum.org/EIPS/eip-7618) (draft): Add Content-encoding handling in ERC-6944 resource request mode
 
 ### Partially implemented features
 
 - [ERC-7087](https://eips.ethereum.org/EIPS/eip-7087) (draft) :  Auto mode : Add MIME type support (dataURLs not supported yet)
+- [ERC-7774](https://github.com/ethereum/ERCs/pull/652) (pending): Cache invalidation in ERC-5219 mode Web3 URL (only ETag supported, wildcards not yet supported)
 
 ## Testing
 
