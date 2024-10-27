@@ -46,13 +46,13 @@ func (c *ResourceRequestCachingTracker) GetOrCreateChainCachingTracker(chainId i
 			ResourcesCachingInfos: make(map[common.Address]map[string]*ResourceCachingInfos),
 			EventsCheckWorkerStopChan: make(chan bool),
 			GlobalCachingTracker: c,
-			IsActive: true,
 		}
+		c.ChainCachingTrackers[chainId] = chainCachingTracker
+
+		chainCachingTracker.Activate()
 
 		// Start the worker that checks for events to be processed
 		go chainCachingTracker.checkEventsWorker(12 * time.Second)
-
-		c.ChainCachingTrackers[chainId] = chainCachingTracker
 	}
 
 	return
@@ -79,6 +79,8 @@ type ResourceRequestChainCachingTracker struct {
 	// The cache of indifidual resources requested by the client
 	// map[contractAddress][pathQuery]
 	ResourcesCachingInfos map[common.Address]map[string]*ResourceCachingInfos
+	// Last read date of the cache
+	LastRead time.Time
 
 	// There is a goroutine worker that checks for events to be processed
 	// This is the channel to stop it
@@ -137,11 +139,17 @@ func (c* ResourceRequestChainCachingTracker) Activate() {
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
+	c.ActivateUnsafe()
+}
+
+// Activate() without the mutex
+func (c* ResourceRequestChainCachingTracker) ActivateUnsafe() {
 	if c.IsActive {
 		return
 	}
 
 	c.IsActive = true
+	c.LastRead = time.Now()
 
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
@@ -150,8 +158,13 @@ func (c* ResourceRequestChainCachingTracker) Activate() {
 }
 
 func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAddress common.Address, pathQuery string) (resourceCachingInfos *ResourceCachingInfos, ok bool) {
-	c.Mutex.RLock()
-	defer c.Mutex.RUnlock()
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	// If the caching tracker is not active, return nil
+	if !c.IsActive {
+		return
+	}
 
 	contractResources, ok := c.ResourcesCachingInfos[contractAddress]
 	if !ok {
@@ -159,6 +172,12 @@ func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAdd
 	}
 
 	resourceCachingInfos, ok = contractResources[pathQuery]
+
+	// Log the cache hit
+	if ok {
+		c.LastRead = time.Now()
+	}
+
 	return
 }
 
@@ -166,9 +185,9 @@ func (c *ResourceRequestChainCachingTracker) SetResourceCachingInfos(contractAdd
 	c.Mutex.Lock()
 	defer c.Mutex.Unlock()
 
-	// If the caching tracker is not active, do not set the cache
+	// If the caching tracker is not active, activate it
 	if !c.IsActive {
-		return
+		c.ActivateUnsafe()
 	}
 
 	contractResources, ok := c.ResourcesCachingInfos[contractAddress]
@@ -284,16 +303,26 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					eventCheckingMutex.Unlock()
 				}()
 
+				// If the chain caching tracker is not active, we skip
+				if !cct.IsActive {
+					return
+				}
+
+				// If the last time we read the cache was more than XX minutes ago, we desactivate the tracker
+				// Reason : tracking use one RPC call every XX seconds, and if the cache is not used enough,
+				// then you end up using more RPC calls than you save
+				if time.Since(cct.LastRead) > 10 * time.Minute {
+					log.WithFields(logFields(nil)).Info("Cache not used for a long time, desactivating the tracker.")
+					cct.Desactivate()
+					return
+				}
+
 				// Get the current block number
 				currentBlockNumber, err := ethClient.BlockNumber(context.Background())
 				if err != nil {
 					log.WithFields(logFields(nil)).Error("Could not get the current block number")
 					cct.Desactivate()
 					return
-				}
-				// If the chain caching tracker was not active, mark it as active
-				if !cct.IsActive {
-					cct.Activate()
 				}
 
 				// Get the logs
