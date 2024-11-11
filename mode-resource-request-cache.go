@@ -7,6 +7,7 @@ import (
 	"strings"
 	"context"
 	"math/big"
+	"errors"
 	// "fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -175,6 +176,39 @@ func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfos(contractAdd
 
 	// Log the cache hit
 	if ok {
+		c.LastRead = time.Now()
+	}
+
+	return
+}
+
+func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfosByPattern(contractAddress common.Address, pathQueryPattern string) (resourceCachingInfos map[string]*ResourceCachingInfos, err error) {
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+
+	// If the caching tracker is not active, return nil
+	if !c.IsActive {
+		return
+	}
+
+	contractResources, ok := c.ResourcesCachingInfos[contractAddress]
+	if !ok {
+		return
+	}
+
+	// For now we only implement the "*" wildcard
+	if pathQueryPattern != "*" {
+		err = errors.New("Only the '*' wildcard is supported")
+		return
+	}
+
+	resourceCachingInfos = make(map[string]*ResourceCachingInfos)
+	for pathQuery, cachingInfos := range contractResources {
+		resourceCachingInfos[pathQuery] = cachingInfos
+	}
+
+	// Log the cache hit
+	if len(resourceCachingInfos) > 0 {
 		c.LastRead = time.Now()
 	}
 
@@ -361,9 +395,24 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					
 					// Delete the caching infos for each pathQuery
 					for _, pathQuery := range pathQueries {
-						// Fetch the resource caching infos
-						resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
-						if ok {
+						resourcesToClear := make(map[string]*ResourceCachingInfos)
+						// Special case : if the pathQuery is "*", we delete everything from the contract
+						if pathQuery == "*" {
+							_resourcesToClear, err := cct.GetResourceCachingInfosByPattern(logEntry.Address, pathQuery)
+							if err != nil {
+								log.WithFields(logFields(nil)).Error("Could not get the resources to clear, skipping...")
+								continue
+							}
+							resourcesToClear = _resourcesToClear
+						} else {
+							resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
+							if ok {
+								resourcesToClear[pathQuery] = resourceCachingInfos
+							}
+						}
+
+						// For each resource to clear, delete the cache
+						for pathQuery, resourceCachingInfos := range resourcesToClear {
 							// Delete the cache for the pathQuery
 							cct.DeleteResourceCachingInfos(logEntry.Address, pathQuery)
 
