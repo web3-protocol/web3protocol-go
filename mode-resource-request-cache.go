@@ -73,6 +73,8 @@ type ResourceRequestChainCachingTracker struct {
 	ChainId int
 	// The last block number we have processed
 	LastBlockNumber uint64
+	// The time of the last successfull event check
+	LastEventsCheck time.Time
 	// Is it active? It is not active if the event check worker has trouble and is
 	// not able to track events
 	IsActive bool
@@ -316,6 +318,8 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 	}
 	cct.LastBlockNumber = currentBlockNumber
 	log.WithFields(logFields(nil)).Debug("Current block number: ", currentBlockNumber)
+	// Init the last events check time
+	cct.LastEventsCheck = time.Now()
 
 	// Main loop
 	for {
@@ -351,11 +355,19 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					return
 				}
 
+				// We allow a random failure of the check events worker (due to block number fail or event fetching
+				// fail), but if it fails too often, we desactivate the tracker
+				// If failed for more than 1 minute, we desactivate the tracker
+				if time.Since(cct.LastEventsCheck) > 1 * time.Minute {
+					log.WithFields(logFields(nil)).Error("Check events failed for more than 1 minute, desactivating the tracker.")
+					cct.Desactivate()
+					return
+				}
+
 				// Get the current block number
 				currentBlockNumber, err := ethClient.BlockNumber(context.Background())
 				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the current block number")
-					cct.Desactivate()
+					log.WithFields(logFields(nil)).Error("Could not get the current block number, skipping check ...")
 					return
 				}
 
@@ -369,8 +381,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					Topics:    [][]common.Hash{{common.HexToHash("0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219")}},
 				})
 				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the logs")
-					cct.Desactivate()
+					log.WithFields(logFields(nil)).Error("Could not get the logs, skipping check ...")
 					return
 				}
 				log.WithFields(logFields(nil)).Debug("ClearPathCache logs fetched: ", len(logs))
@@ -432,6 +443,9 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 
 				// Update the last block number
 				cct.LastBlockNumber = currentBlockNumber
+
+				// Update the last event check time
+				cct.LastEventsCheck = time.Now()
 			}()
 
 		case <- cct.EventsCheckWorkerStopChan:
