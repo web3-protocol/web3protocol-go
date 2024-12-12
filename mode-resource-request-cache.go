@@ -153,6 +153,7 @@ func (c* ResourceRequestChainCachingTracker) ActivateUnsafe() {
 
 	c.IsActive = true
 	c.LastRead = time.Now()
+	c.LastEventsCheck = time.Now()
 
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
