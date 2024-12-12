@@ -58,7 +58,7 @@ type RequestQueueResponse struct {
 // A RPC, containing its URL and state
 type Rpc struct {
 	// The RPC config
-	Config *ChainConfig
+	Config ChainConfig
 
 	// The state of the RPC
 	State RpcState
@@ -102,7 +102,7 @@ func NewClient(config *Config) (client *Client) {
 			maxNumberOfConcurrentRequests = 5
 		}
 		client.Rpcs[chainId] = append(client.Rpcs[chainId], &Rpc{
-				Config: &chainConfig,
+				Config: chainConfig,
 				State: RpcStateAvailable,
 				RequestSemaphone: make(chan struct{}, maxNumberOfConcurrentRequests),
 			})
