@@ -1,6 +1,8 @@
 package web3protocol
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -46,6 +48,8 @@ type ChainConfig struct {
 
 	// The RPC URL to use to call the chain
 	RPC string
+	// The maximum number of parralel requests to the RPC
+	RPCMaxConcurrentRequests int
 
 	// A chain-specific config per domain name service. Key is their short name.
 	DomainNameServices map[DomainNameService]DomainNameServiceChainConfig
@@ -69,6 +73,41 @@ type DomainNameServiceChainConfig struct {
 	// The URL to the contract of the resolver
 	ResolverAddress common.Address
 }
+
+
+// Web3 protocol error
+type Web3ProtocolError struct {
+	Type Web3ProtocolErrorType
+
+	// The HTTP code to return to the client
+	HttpCode int
+
+	// If the type is RPC failure, this is the HTTP code and message from the RPC
+	RpcHttpCode int
+	RpcMessage	string
+
+	// If the type is other, this is the error message
+	Err string
+}
+
+type Web3ProtocolErrorType string // The type of the error
+const (
+	Web3ProtocolErrorTypeRPCFailure  Web3ProtocolErrorType = "rpcFailure"
+	Web3ProtocolErrorTypeOther Web3ProtocolErrorType = "other"
+)
+
+func (e *Web3ProtocolError) Error() string {
+	if e.Type == Web3ProtocolErrorTypeRPCFailure {
+		if e.RpcMessage == "" {
+			return fmt.Sprintf("RPC failure with HTTP code %d", e.RpcHttpCode)
+		} else {
+			return fmt.Sprintf("RPC failure with HTTP code %d and message: %s", e.RpcHttpCode, e.RpcMessage)
+		}
+	} else {
+		return e.Err
+	}
+}
+
 
 // An error type with a HTTP code
 type ErrorWithHttpCode struct {

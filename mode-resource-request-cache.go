@@ -367,7 +367,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 				// Get the current block number
 				currentBlockNumber, err := ethClient.BlockNumber(context.Background())
 				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the current block number, skipping check ...")
+					log.WithFields(logFields(nil)).Error("Could not get the current block number, skipping check")
 					return
 				}
 
@@ -381,7 +381,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 					Topics:    [][]common.Hash{{common.HexToHash("0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219")}},
 				})
 				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the logs, skipping check ...")
+					log.WithFields(logFields(nil)).Error("Could not get the logs, skipping check")
 					return
 				}
 				log.WithFields(logFields(nil)).Debug("ClearPathCache logs fetched: ", len(logs))

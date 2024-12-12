@@ -10,28 +10,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
-	"github.com/sirupsen/logrus"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	golanglru2 "github.com/hashicorp/golang-lru/v2/expirable"
 )
-
-type Client struct {
-	Config *Config
-	Logger *logrus.Logger
-	
-	// Cache for domain name resolution
-	DomainNameResolutionCache *localCache
-
-	// Resolve mode cache
-	ResolveModeCache *golanglru2.LRU[ResolveModeCacheKey, ResolveMode]
-
-	// Resource request mode : cache invalidation tracking
-	ResourceRequestCachingTracker ResourceRequestCachingTracker
-}
 
 type ResolveModeCacheKey struct {
 	ChainId         int
@@ -148,27 +131,16 @@ type FetchedWeb3URL struct {
 }
 
 /**
- * You'll need to instantiate a client to make calls.
- */
-func NewClient(config *Config) (client *Client) {
-	client = &Client{
-		Config: config,
-		DomainNameResolutionCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
-		ResolveModeCache: golanglru2.NewLRU[ResolveModeCacheKey, ResolveMode](1000, nil, time.Duration(0)),
-		Logger: logrus.New(),
-	}
-	client.ResourceRequestCachingTracker = NewResourceRequestCachingTracker(client)
-
-	return
-}
-
-/**
- * The main function of the package.
+ * The main function executing a web3:// URL call.
  * For a given full web3:// url ("web3://xxxx"), returns a structure containing
  * the bytes output and the HTTP code and headers, as well as plenty of informations on
  * how the processing was done.
+ *
+ * Unlike FetchUrl(), this function does not use the built-in worker system which 
+ * aggregates identical requests and limits the number of parallel requests.
+ * On the other hand, it does have the per-RPC limit of parralel requests.
  */
-func (client *Client) FetchUrl(url string, httpHeaders map[string]string) (fetchedUrl FetchedWeb3URL, err error) {
+func (client *Client) FetchUrlDirect(url string, httpHeaders map[string]string) (fetchedUrl FetchedWeb3URL, err error) {
 	// Parse the URL
 	parsedUrl, err := client.ParseUrl(url, httpHeaders)
 	if err != nil {

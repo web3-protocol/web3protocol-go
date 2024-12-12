@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	goEthereumRpc "github.com/ethereum/go-ethereum/rpc"
 	// log "github.com/sirupsen/logrus"
 )
 
@@ -119,6 +121,36 @@ func methodCallToCalldata(methodName string, methodArgTypes []abi.Type, methodAr
 	return
 }
 
+// Find an available RPC for the chain. If no available RPC, find one in tooManyRequests state. If
+// none are available, return an error.
+func (client *Client) findAvailableRpc(chain int, allowTooManyRequestsRPCs bool) (rpc *Rpc, err error) {
+	client.RpcsMutex.RLock()
+	defer client.RpcsMutex.RUnlock()
+
+	rpcs, ok := client.Rpcs[chain]
+	if !ok {
+		err = errors.New(fmt.Sprintf("No RPCs found for chain %d", chain))
+		return
+	}
+
+	for _, rpc = range rpcs {
+		if rpc.State == RpcStateAvailable {
+			return
+		}
+	}
+
+	if allowTooManyRequestsRPCs {
+		for _, rpc = range rpcs {
+			if rpc.State == RpcStateTooManyRequests {
+				return
+			}
+		}
+	}
+
+	err = errors.New(fmt.Sprintf("No available RPCs found for chain %d", chain))
+	return
+}
+
 // Get an ethClient for a given chain
 func (client *Client) getEthClient(chain int) (ethClient *ethclient.Client, err error) {
 	// Ensure the chain config entry exists
@@ -137,6 +169,20 @@ func (client *Client) getEthClient(chain int) (ethClient *ethclient.Client, err 
 
 // Call a contract with calldata
 func (client *Client) callContract(contract common.Address, chain int, calldata []byte) (contractReturn []byte, err error) {
+	// Find an available RPC for the chain. If no available RPC, find one in tooManyRequests state. If
+	// none are available, return an error.
+	rpc, err := client.findAvailableRpc(chain, true)
+	if err != nil {
+		return contractReturn, &ErrorWithHttpCode{http.StatusServiceUnavailable, err.Error()}
+	}
+
+	// Create connection
+	ethClient, err := ethclient.Dial(rpc.Config.RPC)
+	if err != nil {
+		return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+	}
+	defer ethClient.Close()
+
 	// Prepare the ethereum message to send
 	callMessage := ethereum.CallMsg{
 		From:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
@@ -149,34 +195,106 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 		Value:     nil,
 	}
 
-	// Create connection
-	ethClient, err := client.getEthClient(chain)
-	if err != nil {
-		return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
-	}
-	defer ethClient.Close()
 
-	// Do the contract call
-	contractReturn, err = handleCallContract(ethClient, callMessage)
-	if err != nil {
-		return contractReturn, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
+	//
+	// Loop: For a given time, we try to call the contract.
+	// As long as the RPC is 429, we wait for it to be available
+	// until the maxRpcWaitedDuration is reached
+	//
+
+	// How many time did we wait for the RPC to be available
+	rpcWaitedDuration := 0 * time.Second
+	// How often do we check if the RPC is available
+	rpcWaitInterval := 1 * time.Second
+	// The maximum time we wait for the RPC to be available
+	maxRpcWaitedDuration := 30 * time.Second
+
+	for notExecuted := true; notExecuted; notExecuted = (err != nil) {
+		//
+		// If the RPC is not available, wait for it to be available
+		//
+
+		// If the RPC is right now not available, wait for it to be available
+		// Basic polling loop, no channels yet
+		client.RpcsMutex.RLock()
+		rpcState := rpc.State
+		client.RpcsMutex.RUnlock()
+		for rpcState != RpcStateAvailable {
+			// 429 State
+			if rpcState == RpcStateTooManyRequests {
+				// Wait for the RPC to be available
+				rpcWaitedDuration += rpcWaitInterval
+				if rpcWaitedDuration > maxRpcWaitedDuration {
+					return contractReturn, &ErrorWithHttpCode{http.StatusServiceUnavailable, "RPC has been in 429 Too Many Requests state for too long"}
+				}
+				time.Sleep(rpcWaitInterval)
+
+				// Check if the RPC is available
+				client.RpcsMutex.RLock()
+				rpcState = rpc.State
+				client.RpcsMutex.RUnlock()
+			// 401 State (Would be weird to switch from 429 to 401, but anyway let's check)
+			} else if rpcState == RpcStateUnauthorized {
+				return contractReturn, &ErrorWithHttpCode{http.StatusUnauthorized, "RPC is unauthorized"}
+			}
+		}
+
+		//
+		// Do the contract call
+		//
+
+		// Wait for one slot to be available
+		rpc.RequestSemaphone <- struct{}{}
+		// Do the call
+		contractReturn, err = ethClient.CallContract(context.Background(), callMessage, nil)
+		// Release the slot
+		<-rpc.RequestSemaphone
+
+
+		//
+		// Handle errors of the call execution
+		//
+
+		if err != nil {
+			// fmt.Printf("callContract Error %+v\n", err)
+			// fmt.Printf("callContract Error type: %T\n", err)
+
+			// If error is not of type rpc.HTTPError, we return with an error
+			if _, ok := err.(goEthereumRpc.HTTPError); !ok {
+				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, err.Error()}
+			}
+
+			// Get the RPC error
+			rpcErr := err.(goEthereumRpc.HTTPError)
+
+			// If the error is a 401 Unauthorized, switch the RPC to unauthorized
+			if rpcErr.StatusCode == http.StatusUnauthorized {
+				client.RpcsMutex.Lock()
+				rpc.State = RpcStateUnauthorized
+				client.RpcsMutex.Unlock()
+				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, "RPC is unauthorized"}
+			}
+			// IF the RPC is not 429, return with an error
+			if rpcErr.StatusCode != http.StatusTooManyRequests {
+				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, err.Error()}
+			}
+
+			// If the RPC is 429, switch the RPC to tooManyRequests, and we restart the loop,
+			// waiting for the RPC to be available
+			client.RpcsMutex.Lock()
+			if rpc.State != RpcStateTooManyRequests {
+				rpc.State = RpcStateTooManyRequests
+				// Start a goroutine to check if the RPC is available again
+				go client.CheckTooManyRequestsStateWorker(rpc)
+			}
+			client.RpcsMutex.Unlock()
+		}
 	}
+
 
 	return
 }
 
-func handleCallContract(client *ethclient.Client, msg ethereum.CallMsg) ([]byte, error) {
-
-	bs, err := client.CallContract(context.Background(), msg, nil)
-	if err != nil {
-		if err.Error() == "execution reverted" {
-			return nil, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
-		} else {
-			return nil, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error: " + err.Error()}
-		}
-	}
-	return bs, nil
-}
 
 // URL.parseQuery does not preserve the order of query attributes
 // This is a version which keep order
