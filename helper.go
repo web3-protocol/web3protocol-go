@@ -202,6 +202,10 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	// until the maxRpcWaitedDuration is reached
 	//
 
+	// Wait for one request slot to be available
+	rpc.RequestSemaphone <- struct{}{}
+	defer func() {<-rpc.RequestSemaphone}()
+
 	// How many time did we wait for the RPC to be available
 	rpcWaitedDuration := 0 * time.Second
 	// How often do we check if the RPC is available
@@ -210,6 +214,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	maxRpcWaitedDuration := 30 * time.Second
 
 	for notExecuted := true; notExecuted; notExecuted = (err != nil) {
+
 		//
 		// If the RPC is not available, wait for it to be available
 		//
@@ -243,12 +248,8 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 		// Do the contract call
 		//
 
-		// Wait for one slot to be available
-		rpc.RequestSemaphone <- struct{}{}
 		// Do the call
 		contractReturn, err = ethClient.CallContract(context.Background(), callMessage, nil)
-		// Release the slot
-		<-rpc.RequestSemaphone
 
 
 		//

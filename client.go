@@ -23,7 +23,7 @@ type Client struct {
 	RequestQueue map[RequestQueueKey][]chan *RequestQueueResponse
 	RequestQueueMutex sync.Mutex
 	// One worker per request, limited to X workers
-	RequestWorkerSemaphone chan struct{}
+	// RequestWorkerSemaphone chan struct{}
 
 	// Cache for domain name resolution
 	DomainNameResolutionCache *localCache
@@ -85,7 +85,7 @@ func NewClient(config *Config) (client *Client) {
 
 		RequestQueue: make(map[RequestQueueKey][]chan *RequestQueueResponse),
 
-		RequestWorkerSemaphone: make(chan struct{}, 5),
+		// RequestWorkerSemaphone: make(chan struct{}, 5),
 
 		DomainNameResolutionCache: newLocalCache(time.Duration(config.NameAddrCacheDurationInMinutes)*time.Minute, 10*time.Minute),
 		ResolveModeCache: golanglru2.NewLRU[ResolveModeCacheKey, ResolveMode](1000, nil, time.Duration(0)),
@@ -140,7 +140,7 @@ func (client *Client) FetchUrl(url string, httpHeaders map[string]string) (fetch
 
 	// If the request was not already in the queue, start a worker to process it
 	if !requestAlreadyInQueue {
-		client.RequestWorkerSemaphone <- struct{}{}
+		// client.RequestWorkerSemaphone <- struct{}{}
 		go client.requestWorker(requestQueueKey)
 	}
 
@@ -154,8 +154,8 @@ func (client *Client) FetchUrl(url string, httpHeaders map[string]string) (fetch
 
 func (client *Client) requestWorker(requestQueueKey RequestQueueKey) {
 	defer func() {
-		// Release the worker semaphore
-		<-client.RequestWorkerSemaphone
+		// // Release the worker semaphore
+   	// <-client.RequestWorkerSemaphone
 	}()
 
 	client.Logger.WithFields(logrus.Fields{
