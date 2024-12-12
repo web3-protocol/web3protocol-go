@@ -1,17 +1,16 @@
 package web3protocol
 
 import (
-	"context"
+	// "context"
 	"fmt"
-	"mime"
+	// "mime"
 	"net/http"
 	"strings"
 
-	"github.com/ethereum/go-ethereum"
+	// "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
+	// "github.com/ethereum/go-ethereum/crypto"
 
 	// log "github.com/sirupsen/logrus"
 	"golang.org/x/net/idna"
@@ -107,79 +106,102 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
 		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "Unrecognized domain name"}
 	}
 
-	nsInfo, rpc, we := client.getConfigs(nameServiceChain, nameWithSuffix)
+	nsInfo, _, we := client.getConfigs(nameServiceChain, nameWithSuffix)
 	if we != nil {
 		return common.Address{}, 0, we
 	}
-	ethClient, err := ethclient.Dial(rpc)
-	if err != nil {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error"}
-	}
-	defer ethClient.Close()
 
 	nameHash, _ := NameHash(nameWithSuffix)
-	node := common.BytesToHash(nameHash[:]).Hex()
-	resolver, e := client.getResolver(ethClient, nsInfo.ResolverAddress, node, nameServiceChain, nameWithSuffix)
+	resolver, e := client.getResolver(nsInfo.ResolverAddress, nameHash, nameServiceChain, nameWithSuffix)
 	if e != nil {
 		return common.Address{}, 0, e
 	}
-	return client.resolve(ethClient, nameServiceChain, resolver, []string{"addr", "bytes32!" + node})
+	return client.resolve(nameServiceChain, resolver, nameHash)
 }
 
-// When webHandler is True, the address will be read with specific webHandler field first;
-// If the read is failed, the address will be read with the `addr` record
-func (client *Client) getAddressFromNameServiceWebHandler(nameServiceChain int, nameWithSuffix string) (common.Address, int, error) {
+// Resolve the address from the name service, including the ERC-6821 cross-chain resolution
+func (client *Client) getAddressFromNameServiceInclErc6821(nameServiceChain int, nameWithSuffix string) (common.Address, int, error) {
 	if common.IsHexAddress(nameWithSuffix) {
 		return common.HexToAddress(nameWithSuffix), 0, nil
 	}
-	nsInfo, rpc, we := client.getConfigs(nameServiceChain, nameWithSuffix)
+	nsInfo, _, we := client.getConfigs(nameServiceChain, nameWithSuffix)
 	if we != nil {
 		return common.Address{}, 0, we
 	}
-	ethClient, err := ethclient.Dial(rpc)
-	if err != nil {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusInternalServerError, "internal server error"}
-	}
-	defer ethClient.Close()
 
 	nameHash, _ := NameHash(nameWithSuffix)
-	node := common.BytesToHash(nameHash[:]).Hex()
-	resolver, e := client.getResolver(ethClient, nsInfo.ResolverAddress, node, nameServiceChain, nameWithSuffix)
+	resolver, e := client.getResolver(nsInfo.ResolverAddress, nameHash, nameServiceChain, nameWithSuffix)
 	if e != nil {
 		return common.Address{}, 0, e
 	}
-	var args []string
-	var returnTp string
-	if nsInfo.Id == DomainNameServiceW3NS {
-		args = []string{"webHandler", "bytes32!" + node}
-		returnTp = "(address)"
-	} else if nsInfo.Id == DomainNameServiceENS {
-		args = []string{"text", "bytes32!" + node, "string!contentcontract"}
-		returnTp = "(string)"
-	}
-	msg, _, e := client.parseArguments(nameServiceChain, resolver, args)
-	if e != nil {
-		return common.Address{}, 0, e
-	}
-	bs, we := handleCallContract(ethClient, msg)
-	if we != nil {
-		return common.Address{}, 0, we
-	}
-	if common.Bytes2Hex(bs) != EmptyString {
-		res, we := parseOutput(bs, returnTp)
-		if we == nil {
-			return client.parseChainSpecificAddress(res[0].(string))
+
+	// ERC-6821: Cross-chain resolution
+	if nsInfo.Id == DomainNameServiceENS {
+		// Generating the calldata for the text(bytes32, string) call
+		bytes32Type, _ := abi.NewType("bytes32", "", nil)
+		stringType, _ := abi.NewType("string", "", nil)
+		methodArgTypes := []abi.Type{bytes32Type, stringType}
+		argValues := make([]interface{}, 0)
+		argValues = append(argValues, nameHash)
+		argValues = append(argValues, "contentcontract")
+		msg, err := methodCallToCalldata("text", methodArgTypes, argValues)
+		if err != nil {
+			return common.Address{}, 0, err
+		}
+
+		// Call the contract
+		bs, err := client.callContract(resolver, nameServiceChain, msg)
+		if err != nil {
+			return common.Address{}, 0, we
+		}
+		if common.Bytes2Hex(bs) != EmptyString {
+			res, err := parseOutput(bs, "(string)")
+			if err == nil {
+				return client.parseChainSpecificAddress(res[0].(string))
+			}
+		}
+	// W3NS: ERC-6821-like cross-chain resolution
+	} else if nsInfo.Id == DomainNameServiceW3NS {
+		// Generating the calldata for the webHandler(bytes32) call
+		bytes32Type, _ := abi.NewType("bytes32", "", nil)
+		methodArgTypes := []abi.Type{bytes32Type}
+		argValues := make([]interface{}, 0)
+		argValues = append(argValues, nameHash)
+		msg, err := methodCallToCalldata("webHandler", methodArgTypes, argValues)
+		if err != nil {
+			return common.Address{}, 0, err
+		}
+
+		// Call the contract
+		bs, err := client.callContract(resolver, nameServiceChain, msg)
+		if err != nil {
+			return common.Address{}, 0, we
+		}
+		if common.Bytes2Hex(bs) != EmptyString {
+			res, err := parseOutput(bs, "(address)")
+			if err == nil {
+				return client.parseChainSpecificAddress(res[0].(string))
+			}
 		}
 	}
-	return client.resolve(ethClient, nameServiceChain, resolver, []string{"addr", "bytes32!" + node})
+
+	// If nothing, return the address
+	return client.resolve(nameServiceChain, resolver, nameHash)
 }
 
-func (client *Client) resolve(ethClient *ethclient.Client, nameServiceChain int, resolver common.Address, args []string) (common.Address, int, error) {
-	msg, _, e := client.parseArguments(nameServiceChain, resolver, args)
-	if e != nil {
-		return common.Address{}, 0, e
+func (client *Client) resolve(nameServiceChain int, resolver common.Address, nameHash [32]byte) (common.Address, int, error) {
+	// Generating the calldata for the addr(bytes32) call
+	bytes32Type, _ := abi.NewType("bytes32", "", nil)
+	methodArgTypes := []abi.Type{bytes32Type}
+	argValues := make([]interface{}, 0)
+	argValues = append(argValues, nameHash)
+	msg, err := methodCallToCalldata("addr", methodArgTypes, argValues)
+	if err != nil {
+		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
 	}
-	bs, err := ethClient.CallContract(context.Background(), msg, nil)
+
+	// Call the contract
+	bs, err := client.callContract(resolver, nameServiceChain, msg)
 	if err != nil {
 		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
 	}
@@ -193,15 +215,21 @@ func (client *Client) resolve(ethClient *ethclient.Client, nameServiceChain int,
 	return client.parseChainSpecificAddress(res[0].(string))
 }
 
-func (client *Client) getResolver(ethClient *ethclient.Client, nsAddr common.Address, node string, nameServiceChain int, nameWithSuffix string) (common.Address, error) {
-	msg, _, e := client.parseArguments(nameServiceChain, nsAddr,
-		[]string{"resolver", "bytes32!" + node})
-	if e != nil {
-		return common.Address{}, e
+func (client *Client) getResolver(nsAddr common.Address, nameHash [32]byte, nameServiceChain int, nameWithSuffix string) (common.Address, error) {
+	// Generating the calldata for the resolver(bytes32) call
+	bytes32Type, _ := abi.NewType("bytes32", "", nil)
+	methodArgTypes := []abi.Type{bytes32Type}
+	argValues := make([]interface{}, 0)
+	argValues = append(argValues, nameHash)
+	msg, err := methodCallToCalldata("resolver", methodArgTypes, argValues)
+	if err != nil {
+		return common.Address{}, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
 	}
-	bs, e := handleCallContract(ethClient, msg)
-	if e != nil {
-		return common.Address{}, e
+
+	// Call the contract
+	bs, err := client.callContract(nsAddr, nameServiceChain, msg)
+	if err != nil {
+		return common.Address{}, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
 	}
 	if common.Bytes2Hex(bs) == EmptyAddress {
 		return common.Address{}, &ErrorWithHttpCode{http.StatusNotFound, "Cannot resolve domain name"}
@@ -250,63 +278,8 @@ func (client *Client) parseChainSpecificAddress(addr string) (common.Address, in
 	return common.HexToAddress(ss[1]), chainId, nil
 }
 
-// parseArguments parses a [METHOD_NAME, ARG0, ARG1, ...] string array into an ethereum message with provided address, and return the mime type if end with type extension
-func (client *Client) parseArguments(nameServiceChain int, addr common.Address, args []string) (ethereum.CallMsg, ArgInfo, error) {
-	msig := "("
-	mimeType := ""
-	var arguments abi.Arguments = make([]abi.Argument, 0)
-	values := make([]interface{}, 0)
-	for i := 1; i < len(args); i++ {
-		if len(args[i]) == 0 {
-			continue
-		}
-		ty, typeStr, value, err := client.parseArgument(args[i], nameServiceChain)
-		if err != nil {
-			return ethereum.CallMsg{}, ArgInfo{}, err
-		}
-		arguments = append(arguments, abi.Argument{Type: ty})
-		values = append(values, value)
-		if i != 1 {
-			msig = msig + ","
-		}
-		msig = msig + typeStr
-		ss := strings.Split(args[i], ".")
-		if i == len(args)-1 && len(ss) > 1 {
-			mimeType = mime.TypeByExtension("." + ss[len(ss)-1])
-		}
-	}
-	dataField, err := arguments.Pack(values...)
-	if err != nil {
-		return ethereum.CallMsg{}, ArgInfo{}, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
-	}
-	msig = msig + ")"
-
-	var calldata []byte
-	var argInfo ArgInfo
-
-	// skip parsing the calldata if there's no argument or the method signature(args[0]) is empty
-	if len(args) != 0 && args[0] != "" {
-		h := crypto.Keccak256Hash(append([]byte(args[0]), msig...))
-		mid := h[0:4]
-		calldata = append(mid, dataField...)
-		argInfo.methodSignature = args[0] + msig
-	}
-	msg := ethereum.CallMsg{
-		From:      common.HexToAddress("0x0000000000000000000000000000000000000000"),
-		To:        &addr,
-		Gas:       0,
-		GasPrice:  nil,
-		GasFeeCap: nil,
-		GasTipCap: nil,
-		Data:      calldata,
-		Value:     nil,
-	}
-	argInfo.mimeType = mimeType
-	argInfo.calldata = "0x" + common.Bytes2Hex(calldata)
-	return msg, argInfo, nil
-}
-
 // parseOutput parses the bytes into actual values according to the returnTypes string
+// TODO: To remove, legacy code
 func parseOutput(output []byte, userTypes string) ([]interface{}, error) {
 	returnTypes := "(bytes)"
 	if userTypes == "()" {

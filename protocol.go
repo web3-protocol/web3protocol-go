@@ -318,7 +318,7 @@ func (client *Client) ParseUrl(url string, httpHeaders map[string]string) (web3U
 		}
 		if !hit {
 			var err error
-			addr, targetChain, err = client.getAddressFromNameServiceWebHandler(web3Url.HostDomainNameResolverChainId, web3Url.UrlParts.Hostname)
+			addr, targetChain, err = client.getAddressFromNameServiceInclErc6821(web3Url.HostDomainNameResolverChainId, web3Url.UrlParts.Hostname)
 			if err != nil {
 				return web3Url, err
 			}
