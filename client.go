@@ -20,6 +20,7 @@ type Client struct {
 	RpcsMutex sync.RWMutex
 	
 	// The request queue, and their channel to notify the caller with the response
+	// Used to aggregate requests to the same URL
 	RequestQueue map[RequestQueueKey][]chan *RequestQueueResponse
 	RequestQueueMutex sync.Mutex
 	// One worker per request, limited to X workers
@@ -176,8 +177,6 @@ func (client *Client) requestWorker(requestQueueKey RequestQueueKey) {
 	}
 	fetchedUrl, err := client.FetchUrlDirect(requestQueueKey.URL, headers)
 
-	// If err is of type Web3ProtocolError, and the type is RpcFailure, and the HTTP status code is 429, we should retry
-
 	// Prepare the response
 	requestQueueResponse := &RequestQueueResponse{
 		fetchedUrl: &fetchedUrl,
@@ -193,7 +192,7 @@ func (client *Client) requestWorker(requestQueueKey RequestQueueKey) {
 	client.RequestQueueMutex.Unlock()
 }
 
-
+// When a RPC is returning 429, we start a worker to check if it is available again
 func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
 	client.RpcsMutex.RLock()
 	rpcState := rpc.State

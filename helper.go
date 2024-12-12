@@ -206,7 +206,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	rpc.RequestSemaphone <- struct{}{}
 	defer func() {<-rpc.RequestSemaphone}()
 
-	// How many time did we wait for the RPC to be available
+	// How long did we wait for the RPC to be available
 	rpcWaitedDuration := 0 * time.Second
 	// How often do we check if the RPC is available
 	rpcWaitInterval := 1 * time.Second
