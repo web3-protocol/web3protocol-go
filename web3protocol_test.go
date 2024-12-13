@@ -439,7 +439,7 @@ func TestSuite(t *testing.T) {
 						// Test type: Execution of the whole process
 					} else if testGroups.Type == TestTypeFetch {
 						// Fetch the url
-						fetchedWeb3Url, err := client.FetchUrl(test.Url, map[string]string{})
+						fetchedWeb3Url, err := client.FetchUrlDirect(test.Url, map[string]string{})
 
 						if err == nil {
 							// If we were expecting an error, fail
