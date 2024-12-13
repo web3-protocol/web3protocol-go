@@ -177,13 +177,13 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	// none are available, return an error.
 	rpc, err := client.findAvailableRpc(chain, true)
 	if err != nil {
-		return contractReturn, &ErrorWithHttpCode{http.StatusServiceUnavailable, err.Error()}
+		return contractReturn, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 
 	// Create connection
 	ethClient, err := ethclient.Dial(rpc.Config.Url)
 	if err != nil {
-		return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+		return contractReturn, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 	defer ethClient.Close()
 
@@ -234,7 +234,12 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 				// Wait for the RPC to be available
 				rpcWaitedDuration += rpcWaitInterval
 				if rpcWaitedDuration > maxRpcWaitedDuration {
-					return contractReturn, &ErrorWithHttpCode{http.StatusServiceUnavailable, "RPC has been in 429 Too Many Requests state for too long"}
+					return contractReturn, &Web3ProtocolError{
+						Type: Web3ProtocolErrorTypeRPCError,
+						HttpCode: http.StatusInternalServerError,
+						RpcHttpCode: http.StatusTooManyRequests,
+						Err: errors.New("RPC is returning 429, waited too long for it to be available"),
+					}
 				}
 				time.Sleep(rpcWaitInterval)
 
@@ -244,7 +249,12 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 				client.RpcsMutex.RUnlock()
 			// 401 State (Would be weird to switch from 429 to 401, but anyway let's check)
 			} else if rpcState == RpcStateUnauthorized {
-				return contractReturn, &ErrorWithHttpCode{http.StatusUnauthorized, "RPC is unauthorized"}
+				return contractReturn, &Web3ProtocolError{
+					Type: Web3ProtocolErrorTypeRPCError,
+					HttpCode: http.StatusInternalServerError,
+					RpcHttpCode: http.StatusUnauthorized,
+					Err: errors.New("RPC is returning 401 Unauthorized"),
+				}
 			}
 		}
 
@@ -264,9 +274,23 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 			// fmt.Printf("callContract Error %+v\n", err)
 			// fmt.Printf("callContract Error type: %T\n", err)
 
+			// If the error is of type rpc.jsonError (RPC call succeeded, but JSON returned is an error)
+			if jsonError, ok := err.(JsonError); ok {
+				return contractReturn, &Web3ProtocolError{
+					Type: Web3ProtocolErrorTypeRPCJsonError,
+					HttpCode: http.StatusInternalServerError,
+					JsonErrorCode: jsonError.ErrorCode(),
+					JsonErrorData: jsonError.ErrorData(),
+					Err: err,
+				}
+			}
+
 			// If error is not of type rpc.HTTPError, we return with an error
 			if _, ok := err.(goEthereumRpc.HTTPError); !ok {
-				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, err.Error()}
+				return contractReturn, &Web3ProtocolError{
+					HttpCode: http.StatusInternalServerError,
+					Err: err,
+				}
 			}
 
 			// Get the RPC error
@@ -277,11 +301,21 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 				client.RpcsMutex.Lock()
 				rpc.State = RpcStateUnauthorized
 				client.RpcsMutex.Unlock()
-				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, "RPC is unauthorized"}
+				return contractReturn, &Web3ProtocolError{
+					Type: Web3ProtocolErrorTypeRPCError,
+					HttpCode: http.StatusInternalServerError,
+					RpcHttpCode: rpcErr.StatusCode,
+					Err: err,
+				}
 			}
 			// IF the RPC is not 429, return with an error
 			if rpcErr.StatusCode != http.StatusTooManyRequests {
-				return contractReturn, &ErrorWithHttpCode{http.StatusInternalServerError, err.Error()}
+				return contractReturn, &Web3ProtocolError{
+					Type: Web3ProtocolErrorTypeRPCError,
+					HttpCode: http.StatusInternalServerError,
+					RpcHttpCode: rpcErr.StatusCode,
+					Err: err,
+				}
 			}
 
 			// If the RPC is 429, switch the RPC to tooManyRequests, and we restart the loop,

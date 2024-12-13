@@ -85,6 +85,13 @@ type DomainNameServiceChainConfig struct {
 	ResolverAddress common.Address
 }
 
+// Go-Ethereum use an internal jsonError type; to be able to read it we redeclare it here
+type JsonError interface {
+	Error() string
+	ErrorCode() int
+	ErrorData() interface{}
+}
+
 
 // Web3 protocol error
 type Web3ProtocolError struct {
@@ -93,29 +100,34 @@ type Web3ProtocolError struct {
 	// The HTTP code to return to the client
 	HttpCode int
 
-	// If the type is RPC failure, this is the HTTP code and message from the RPC
+	// If the type is RPC error, this is the HTTP code and message from the RPC
 	RpcHttpCode int
-	RpcMessage	string
 
-	// If the type is other, this is the error message
-	Err string
+	// If the type is RPC JSON error, this is the JSON error from the RPC
+	JsonErrorCode int
+	JsonErrorData interface{}
+
+	// The original error, if any
+	Err error
 }
 
 type Web3ProtocolErrorType string // The type of the error
 const (
-	Web3ProtocolErrorTypeRPCFailure  Web3ProtocolErrorType = "rpcFailure"
-	Web3ProtocolErrorTypeOther Web3ProtocolErrorType = "other"
+	// The RPC call itself failed (bad HTTP code)
+	Web3ProtocolErrorTypeRPCError  Web3ProtocolErrorType = "rpcError"
+	// The RPC call succeeded, but the JSON returned by the RPC is an error
+	Web3ProtocolErrorTypeRPCJsonError Web3ProtocolErrorType = "rpcJsonError"
+	// Other
+	Web3ProtocolErrorTypeOther Web3ProtocolErrorType = ""
 )
 
 func (e *Web3ProtocolError) Error() string {
-	if e.Type == Web3ProtocolErrorTypeRPCFailure {
-		if e.RpcMessage == "" {
-			return fmt.Sprintf("RPC failure with HTTP code %d", e.RpcHttpCode)
-		} else {
-			return fmt.Sprintf("RPC failure with HTTP code %d and message: %s", e.RpcHttpCode, e.RpcMessage)
-		}
+	if e.Type == Web3ProtocolErrorTypeRPCError {
+			return fmt.Sprintf("RPC call error with HTTP code %d : %s", e.RpcHttpCode, e.Err)
+	} else if e.Type == Web3ProtocolErrorTypeRPCJsonError {
+		return fmt.Sprintf("RPC call error with JSON error code %d : %s", e.JsonErrorCode, e.Err)
 	} else {
-		return e.Err
+		return e.Err.Error()
 	}
 }
 
@@ -129,3 +141,5 @@ type ErrorWithHttpCode struct {
 func (e *ErrorWithHttpCode) Error() string {
 	return e.Err
 }
+
+

@@ -326,20 +326,34 @@ func (client *Client) ParseUrl(url string, httpHeaders map[string]string) (web3U
 			return web3Url, err
 		}
 		resolveModeReturn, err := client.callContract(web3Url.ContractAddress, web3Url.ChainId, resolveModeCalldata)
+
+		// Determine if the error is a JSON error (the RPC call was successful (HTTP 200) but 
+		// the JSON returned indicate an error (we assume execution error)
+		isExecutionRevertedError := false
+		if err != nil {
+			if wperr, ok := err.(*Web3ProtocolError); ok {
+				if wperr.Type == Web3ProtocolErrorTypeRPCJsonError {
+					isExecutionRevertedError = true
+				}
+			}
+		}
+
 		// Auto : exact match or empty bytes32 value or empty value (method does not exist or return nothing)
 		// or execution reverted
 		if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6175746f00000000000000000000000000000000000000000000000000000000" ||
 			len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "0000000000000000000000000000000000000000000000000000000000000000" ||
-			len(resolveModeReturn) == 0 ||
-			err != nil {
+			isExecutionRevertedError {
 			web3Url.ResolveMode = ResolveModeAuto
-			// Manual : exact match
+		// Manual : exact match
 		} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "6d616e75616c0000000000000000000000000000000000000000000000000000" {
 			web3Url.ResolveMode = ResolveModeManual
-			// ResourceRequest : exact match
+		// ResourceRequest : exact match
 		} else if len(resolveModeReturn) == 32 && common.Bytes2Hex(resolveModeReturn) == "3532313900000000000000000000000000000000000000000000000000000000" {
 			web3Url.ResolveMode = ResolveModeResourceRequests
-			// Other cases (method returning non recognized value) : throw an error
+		// We got an error
+		} else if err != nil {
+			return web3Url, err
+		// Other cases (method returning non recognized value) : throw an error
 		} else {
 			return web3Url, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported resolve mode"}
 		}
