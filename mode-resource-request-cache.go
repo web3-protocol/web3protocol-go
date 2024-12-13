@@ -151,9 +151,11 @@ func (c* ResourceRequestChainCachingTracker) ActivateUnsafe() {
 		return
 	}
 
+	c.LastBlockNumber = 0
+	c.LastEventsCheck = time.Now()
 	c.IsActive = true
 	c.LastRead = time.Now()
-	c.LastEventsCheck = time.Now()
+
 
 	c.GlobalCachingTracker.Client.Logger.WithFields(logrus.Fields{
 		"domain": "resourceRequestModeCaching",
@@ -311,143 +313,144 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 	}
 	defer ethClient.Close()
 
-	// Get the current block number
-	currentBlockNumber, err := ethClient.BlockNumber(context.Background())
-	if err != nil {
-		log.WithFields(logFields(nil)).Error("Could not get the current block number, exiting.")
-		return
+
+	// The event check task
+	eventCheckTask := func() {
+		// Check if action is already running
+		eventCheckingMutex.Lock()
+		if eventCheckingIsRunning {
+			log.WithFields(logFields(nil)).Debug("Check skipped because another is still running.")
+			eventCheckingMutex.Unlock()
+			return
+		}
+		eventCheckingIsRunning = true
+		eventCheckingMutex.Unlock()
+		defer func() {
+			eventCheckingMutex.Lock()
+			eventCheckingIsRunning = false
+			eventCheckingMutex.Unlock()
+		}()
+
+		// If the chain caching tracker is not active, we skip
+		if !cct.IsActive {
+			return
+		}
+
+		// If the last time we read the cache was more than XX minutes ago, we desactivate the tracker
+		// Reason : tracking use one RPC call every XX seconds, and if the cache is not used enough,
+		// then you end up using more RPC calls than you save
+		if time.Since(cct.LastRead) > 10 * time.Minute {
+			log.WithFields(logFields(nil)).Info("Cache not used for a long time, desactivating the tracker.")
+			cct.Desactivate()
+			return
+		}
+
+		// We allow a random failure of the check events worker (due to block number fail or event fetching
+		// fail), but if it fails too often, we desactivate the tracker
+		// If failed for more than 1 minute, we desactivate the tracker
+		if time.Since(cct.LastEventsCheck) > 1 * time.Minute {
+			log.WithFields(logFields(nil)).Error("Check events failed for more than 1 minute, desactivating the tracker.")
+			cct.Desactivate()
+			return
+		}
+
+		// Get the current block number
+		currentBlockNumber, err := ethClient.BlockNumber(context.Background())
+		if err != nil {
+			log.WithFields(logFields(nil)).Error("Could not get the current block number, skipping check")
+			return
+		}
+
+		// Get the logs
+		fromBlockNumber := new(big.Int).SetUint64(currentBlockNumber)
+		if cct.LastBlockNumber > 0 {
+			fromBlockNumber = new(big.Int).SetUint64(cct.LastBlockNumber + 1)
+		}
+		logs, err := ethClient.FilterLogs(context.Background(), ethereum.FilterQuery{
+			FromBlock: fromBlockNumber,
+			ToBlock:   nil,
+			Addresses: []common.Address{},
+			// keccak256("ClearPathCache(string[])"):
+			// 0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219
+			Topics:    [][]common.Hash{{common.HexToHash("0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219")}},
+		})
+		if err != nil {
+			log.WithFields(logFields(nil)).Error("Could not get the logs, skipping check")
+			return
+		}
+		log.WithFields(logFields(nil)).Debug("ClearPathCache logs fetched: ", len(logs))
+
+		// Process the logs
+		for _, logEntry := range logs {
+			// Get the pathQueries to be cleared: logEntry.Data is an ABI-encoded array of strings
+			stringArrayType, _ := abi.NewType("string[]", "", nil)
+			abiArguments := abi.Arguments{
+				{Type: stringArrayType},
+			}
+			unpackedValues, err := abiArguments.UnpackValues(logEntry.Data)
+			if err != nil {
+				log.WithFields(logFields(nil)).Error("Could not unpack the log data, skipping...")
+				continue
+			}
+			pathQueries := unpackedValues[0].([]string)
+
+			log.WithFields(logFields(logrus.Fields{
+				"contractAddress": logEntry.Address,
+			})).Info("Cache clear requested for paths ", pathQueries)
+			
+			// Delete the caching infos for each pathQuery
+			for _, pathQuery := range pathQueries {
+				resourcesToClear := make(map[string]*ResourceCachingInfos)
+				// Special case : if the pathQuery is "*", we delete everything from the contract
+				if pathQuery == "*" {
+					_resourcesToClear, err := cct.GetResourceCachingInfosByPattern(logEntry.Address, pathQuery)
+					if err != nil {
+						log.WithFields(logFields(nil)).Error("Could not get the resources to clear, skipping...")
+						continue
+					}
+					resourcesToClear = _resourcesToClear
+				} else {
+					resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
+					if ok {
+						resourcesToClear[pathQuery] = resourceCachingInfos
+					}
+				}
+
+				// For each resource to clear, delete the cache
+				for pathQuery, resourceCachingInfos := range resourcesToClear {
+					// Delete the cache for the pathQuery
+					cct.DeleteResourceCachingInfos(logEntry.Address, pathQuery)
+
+					// If the resource has listeners for cache clear events, clear them too
+					for _, proxiedCacheClearLocation := range resourceCachingInfos.CacheClearEventListeners {
+						cct.DeleteResourceCachingInfos(proxiedCacheClearLocation.ContractAddress, proxiedCacheClearLocation.PathQuery)
+					}
+				}
+			}
+
+			// We may have got a log more recent than the current block number that we fetched earlier,
+			// so update the last block number
+			if logEntry.BlockNumber > currentBlockNumber {
+				currentBlockNumber = logEntry.BlockNumber
+			}
+		}
+
+		// Update the last block number
+		cct.LastBlockNumber = currentBlockNumber
+
+		// Update the last event check time
+		cct.LastEventsCheck = time.Now()
 	}
-	cct.LastBlockNumber = currentBlockNumber
-	log.WithFields(logFields(nil)).Debug("Current block number: ", currentBlockNumber)
-	// Init the last events check time
-	cct.LastEventsCheck = time.Now()
+
 
 	// Main loop
+	// Execute the event check task right away
+	go eventCheckTask()
+	// Then it's the loop
 	for {
 		select {
 		case <- ticker.C:
-			go func() {
-				// Check if action is already running
-				eventCheckingMutex.Lock()
-				if eventCheckingIsRunning {
-					log.WithFields(logFields(nil)).Debug("Check skipped because another is still running.")
-					eventCheckingMutex.Unlock()
-					return
-				}
-				eventCheckingIsRunning = true
-				eventCheckingMutex.Unlock()
-				defer func() {
-					eventCheckingMutex.Lock()
-					eventCheckingIsRunning = false
-					eventCheckingMutex.Unlock()
-				}()
-
-				// If the chain caching tracker is not active, we skip
-				if !cct.IsActive {
-					return
-				}
-
-				// If the last time we read the cache was more than XX minutes ago, we desactivate the tracker
-				// Reason : tracking use one RPC call every XX seconds, and if the cache is not used enough,
-				// then you end up using more RPC calls than you save
-				if time.Since(cct.LastRead) > 10 * time.Minute {
-					log.WithFields(logFields(nil)).Info("Cache not used for a long time, desactivating the tracker.")
-					cct.Desactivate()
-					return
-				}
-
-				// We allow a random failure of the check events worker (due to block number fail or event fetching
-				// fail), but if it fails too often, we desactivate the tracker
-				// If failed for more than 1 minute, we desactivate the tracker
-				if time.Since(cct.LastEventsCheck) > 1 * time.Minute {
-					log.WithFields(logFields(nil)).Error("Check events failed for more than 1 minute, desactivating the tracker.")
-					cct.Desactivate()
-					return
-				}
-
-				// Get the current block number
-				currentBlockNumber, err := ethClient.BlockNumber(context.Background())
-				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the current block number, skipping check")
-					return
-				}
-
-				// Get the logs
-				logs, err := ethClient.FilterLogs(context.Background(), ethereum.FilterQuery{
-					FromBlock: new(big.Int).SetUint64(cct.LastBlockNumber + 1),
-					ToBlock:   nil,
-					Addresses: []common.Address{},
-					// keccak256("ClearPathCache(string[])"):
-					// 0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219
-					Topics:    [][]common.Hash{{common.HexToHash("0xc38a9b9ff90edb266ea753dddfda98041dac078259df7188da47699190a28219")}},
-				})
-				if err != nil {
-					log.WithFields(logFields(nil)).Error("Could not get the logs, skipping check")
-					return
-				}
-				log.WithFields(logFields(nil)).Debug("ClearPathCache logs fetched: ", len(logs))
-
-				// Process the logs
-				for _, logEntry := range logs {
-					// Get the pathQueries to be cleared: logEntry.Data is an ABI-encoded array of strings
-					stringArrayType, _ := abi.NewType("string[]", "", nil)
-					abiArguments := abi.Arguments{
-						{Type: stringArrayType},
-					}
-					unpackedValues, err := abiArguments.UnpackValues(logEntry.Data)
-					if err != nil {
-						log.WithFields(logFields(nil)).Error("Could not unpack the log data, skipping...")
-						continue
-					}
-					pathQueries := unpackedValues[0].([]string)
-
-					log.WithFields(logFields(logrus.Fields{
-						"contractAddress": logEntry.Address,
-					})).Info("Cache clear requested for paths ", pathQueries)
-					
-					// Delete the caching infos for each pathQuery
-					for _, pathQuery := range pathQueries {
-						resourcesToClear := make(map[string]*ResourceCachingInfos)
-						// Special case : if the pathQuery is "*", we delete everything from the contract
-						if pathQuery == "*" {
-							_resourcesToClear, err := cct.GetResourceCachingInfosByPattern(logEntry.Address, pathQuery)
-							if err != nil {
-								log.WithFields(logFields(nil)).Error("Could not get the resources to clear, skipping...")
-								continue
-							}
-							resourcesToClear = _resourcesToClear
-						} else {
-							resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
-							if ok {
-								resourcesToClear[pathQuery] = resourceCachingInfos
-							}
-						}
-
-						// For each resource to clear, delete the cache
-						for pathQuery, resourceCachingInfos := range resourcesToClear {
-							// Delete the cache for the pathQuery
-							cct.DeleteResourceCachingInfos(logEntry.Address, pathQuery)
-
-							// If the resource has listeners for cache clear events, clear them too
-							for _, proxiedCacheClearLocation := range resourceCachingInfos.CacheClearEventListeners {
-								cct.DeleteResourceCachingInfos(proxiedCacheClearLocation.ContractAddress, proxiedCacheClearLocation.PathQuery)
-							}
-						}
-					}
-
-					// We may have got a log more recent than the current block number that we fetched earlier,
-					// so update the last block number
-					if logEntry.BlockNumber > currentBlockNumber {
-						currentBlockNumber = logEntry.BlockNumber
-					}
-				}
-
-				// Update the last block number
-				cct.LastBlockNumber = currentBlockNumber
-
-				// Update the last event check time
-				cct.LastEventsCheck = time.Now()
-			}()
+			go eventCheckTask()
 
 		case <- cct.EventsCheckWorkerStopChan:
 			// Stop signal received, exit goroutine
