@@ -59,7 +59,7 @@ type RequestQueueResponse struct {
 // A RPC, containing its URL and state
 type Rpc struct {
 	// The RPC config
-	Config ChainConfig
+	Config ChainRPCConfig
 
 	// The state of the RPC
 	State RpcState
@@ -98,12 +98,12 @@ func NewClient(config *Config) (client *Client) {
 	for chainId, chainConfig := range config.Chains {
 		client.Rpcs[chainId] = make([]*Rpc, 0)
 		// Max number of concurrent requests : default to 5
-		maxNumberOfConcurrentRequests := chainConfig.RPCMaxConcurrentRequests
+		maxNumberOfConcurrentRequests := chainConfig.RPC.MaxConcurrentRequests
 		if maxNumberOfConcurrentRequests == 0 {
 			maxNumberOfConcurrentRequests = 5
 		}
 		client.Rpcs[chainId] = append(client.Rpcs[chainId], &Rpc{
-				Config: chainConfig,
+				Config: chainConfig.RPC,
 				State: RpcStateAvailable,
 				RequestSemaphone: make(chan struct{}, maxNumberOfConcurrentRequests),
 			})
@@ -205,7 +205,7 @@ func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
 
 	client.Logger.WithFields(logrus.Fields{
 		"worker": "rpcStateWorker",
-		"url": rpc.Config.RPC,
+		"url": rpc.Config.Url,
 	}).Info("RPC is returning 429, starting worker to check if it is available again")
 
 	for {
@@ -213,11 +213,11 @@ func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
 		time.Sleep(4 * time.Second)
 
 		// Create connection
-		ethClient, err := ethclient.Dial(rpc.Config.RPC)
+		ethClient, err := ethclient.Dial(rpc.Config.Url)
 		if err != nil {
 			client.Logger.WithFields(logrus.Fields{
 				"worker": "rpcStateWorker",
-				"url": rpc.Config.RPC,
+				"url": rpc.Config.Url,
 			}).Error("Failed to connect to RPC: " + err.Error())
 			continue;
 		}
@@ -228,7 +228,7 @@ func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
 		if err != nil {
 			client.Logger.WithFields(logrus.Fields{
 				"worker": "rpcStateWorker",
-				"url": rpc.Config.RPC,
+				"url": rpc.Config.Url,
 			}).Error("Failed to fetch block number: " + err.Error())
 			continue;
 		}
@@ -240,7 +240,7 @@ func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
 
 		client.Logger.WithFields(logrus.Fields{
 			"worker": "rpcStateWorker",
-			"url": rpc.Config.RPC,
+			"url": rpc.Config.Url,
 		}).Info("RPC is available again")
 
 		// Exit the loop

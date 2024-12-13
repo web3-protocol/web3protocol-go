@@ -106,7 +106,7 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
 		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "Unrecognized domain name"}
 	}
 
-	nsInfo, _, we := client.getConfigs(nameServiceChain, nameWithSuffix)
+	nsInfo, we := client.getConfigs(nameServiceChain, nameWithSuffix)
 	if we != nil {
 		return common.Address{}, 0, we
 	}
@@ -124,7 +124,7 @@ func (client *Client) getAddressFromNameServiceInclErc6821(nameServiceChain int,
 	if common.IsHexAddress(nameWithSuffix) {
 		return common.HexToAddress(nameWithSuffix), 0, nil
 	}
-	nsInfo, _, we := client.getConfigs(nameServiceChain, nameWithSuffix)
+	nsInfo, we := client.getConfigs(nameServiceChain, nameWithSuffix)
 	if we != nil {
 		return common.Address{}, 0, we
 	}
@@ -237,25 +237,25 @@ func (client *Client) getResolver(nsAddr common.Address, nameHash [32]byte, name
 	return common.BytesToAddress(bs), nil
 }
 
-func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (DomainNameServiceChainConfig, string, error) {
+func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (DomainNameServiceChainConfig, error) {
 	ss := strings.Split(nameWithSuffix, ".")
 	if len(ss) <= 1 {
-		return DomainNameServiceChainConfig{}, "", &ErrorWithHttpCode{http.StatusBadRequest, "invalid domain name: " + nameWithSuffix}
+		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "invalid domain name: " + nameWithSuffix}
 	}
 	suffix := ss[len(ss)-1]
 	chainInfo, ok := client.Config.Chains[nameServiceChain]
 	if !ok {
-		return DomainNameServiceChainConfig{}, "", &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
+		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
 	}
 	domainNameService := client.Config.GetDomainNameServiceBySuffix(suffix)
 	if domainNameService == "" {
-		return DomainNameServiceChainConfig{}, "", &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
 	}
 	nsInfo, ok := chainInfo.DomainNameServices[domainNameService]
 	if !ok {
-		return DomainNameServiceChainConfig{}, "", &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
 	}
-	return nsInfo, chainInfo.RPC, nil
+	return nsInfo, nil
 }
 
 // support chainSpecificAddress from EIP-3770

@@ -164,7 +164,7 @@ func (client *Client) GetSystemRpcUrl(chain int) (rpcUrl string, err error) {
 		if err != nil {
 			return rpcUrl, err
 		}
-		rpcUrl = rpc.Config.RPC
+		rpcUrl = rpc.Config.Url
 	}
 
 	return
@@ -181,7 +181,7 @@ func (client *Client) callContract(contract common.Address, chain int, calldata 
 	}
 
 	// Create connection
-	ethClient, err := ethclient.Dial(rpc.Config.RPC)
+	ethClient, err := ethclient.Dial(rpc.Config.Url)
 	if err != nil {
 		return contractReturn, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
 	}

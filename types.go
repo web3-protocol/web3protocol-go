@@ -47,9 +47,7 @@ type ChainConfig struct {
 	ShortName string
 
 	// The RPC URL to use to call the chain
-	RPC string
-	// The maximum number of parralel requests to the RPC
-	RPCMaxConcurrentRequests int
+	RPC ChainRPCConfig
 
 	// System RPC : RPC used by system workers (right now, ERC-7774 and its event caching checks)
 	// It will not be used for user requests, and has to be different from the main RPCs
@@ -59,6 +57,13 @@ type ChainConfig struct {
 
 	// A chain-specific config per domain name service. Key is their short name.
 	DomainNameServices map[DomainNameService]DomainNameServiceChainConfig
+}
+
+type ChainRPCConfig struct {
+	// The RPC URL to use to call the chain
+	Url string
+	// The maximum number of parralel requests to the RPC
+	MaxConcurrentRequests int
 }
 
 // Attributes of a domain name service
