@@ -3,6 +3,8 @@ package web3protocol
 import (
 	"time"
 	"sync"
+	// "fmt"
+	"io"
 	"context"
 
 	"github.com/sirupsen/logrus"
@@ -177,20 +179,94 @@ func (client *Client) requestWorker(requestQueueKey RequestQueueKey) {
 	}
 	fetchedUrl, err := client.FetchUrlDirect(requestQueueKey.URL, headers)
 
-	// Prepare the response
-	requestQueueResponse := &RequestQueueResponse{
-		fetchedUrl: &fetchedUrl,
-		err: err,
+
+	// Send the result to all the requesters
+	// We need to duplicate the FetchedWeb3URL response, and update its Output field
+	// (each receiver will read the Output field, and we can't have multiple readers on the same io.Reader)
+	client.RequestQueueMutex.Lock()
+	
+	// Create the shared output
+	sharedOutput := &SharedOutput{
+		OriginalOutput: fetchedUrl.Output,
+		FetchedBytes: make([]byte, 0),
+		IsEnded: false,
+		Mutex: sync.Mutex{},
 	}
 
-	// Notify all the requesters
-	client.RequestQueueMutex.Lock()
+	// For each requester, send the response
 	for _, requestQueueResponseChannel := range client.RequestQueue[requestQueueKey] {
+		// Duplicate the response
+		fetchedUrlCopy := fetchedUrl
+		fetchedUrlCopy.Output = &SharedOutputReader{
+			SharedOutput: sharedOutput,
+			Position: 0,
+		}
+
+		// Prepare the response
+		requestQueueResponse := &RequestQueueResponse{
+			fetchedUrl: &fetchedUrlCopy,
+			err: err,
+		}
+
 		requestQueueResponseChannel <- requestQueueResponse
 	}
+
+	// Delete the request from the queue
 	delete(client.RequestQueue, requestQueueKey)
 	client.RequestQueueMutex.Unlock()
 }
+
+// When a request is shared between multiple receivers, we need to duplicate the response
+// This contains the original output, and ongoing fetched bytes
+type SharedOutput struct {
+	// The original output
+	OriginalOutput io.Reader
+	// The fetched byte
+	FetchedBytes []byte
+	// Is ended?
+	IsEnded bool
+
+	Mutex sync.Mutex
+}
+
+// This is a io.Reader that reads from a SharedOutput
+type SharedOutputReader struct {
+	// The shared output
+	SharedOutput *SharedOutput
+	// The current position in the output
+	Position int
+}
+
+func (r *SharedOutputReader) Read(p []byte) (n int, err error) {
+	r.SharedOutput.Mutex.Lock()
+	defer r.SharedOutput.Mutex.Unlock()
+
+	// If trying to read after the end of the already fetched bytes, try to fetch more
+	if r.Position + len(p) > len(r.SharedOutput.FetchedBytes) && !r.SharedOutput.IsEnded {
+		// Make a buffer the same size as p
+		buffer := make([]byte, len(p))
+		// Read from the original output
+		n, oerr := r.SharedOutput.OriginalOutput.Read(buffer)
+		// Copy the read bytes to the fetched bytes
+		r.SharedOutput.FetchedBytes = append(r.SharedOutput.FetchedBytes, buffer[:n]...)
+		// If we reached the end of the original output, set the flag
+		if oerr == io.EOF {
+			r.SharedOutput.IsEnded = true
+		}
+	}
+
+	// Copy as much bytes as possible
+	n = copy(p, r.SharedOutput.FetchedBytes[r.Position:])
+	r.Position += n
+
+	// If we reached the end of the fetched bytes, and the original output is ended, return EOF
+	if r.Position == len(r.SharedOutput.FetchedBytes) && r.SharedOutput.IsEnded {
+		err = io.EOF
+	}
+
+	return
+}
+
 
 // When a RPC is returning 429, we start a worker to check if it is available again
 func (client *Client) CheckTooManyRequestsStateWorker(rpc *Rpc) {
