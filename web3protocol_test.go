@@ -366,10 +366,10 @@ func TestSuite(t *testing.T) {
 								assert.Equal(t, test.Error.Label, err.Error())
 							}
 							if test.Error.HttpCode > 0 {
-								if web3Err, ok := err.(*ErrorWithHttpCode); ok {
+								if web3Err, ok := err.(*Web3ProtocolError); ok {
 									assert.Equal(t, test.Error.HttpCode, web3Err.HttpCode)
 								} else {
-									assert.Fail(t, "Error is unexpectly not a ErrorWithHttpCode", err)
+									assert.Fail(t, "Error is unexpectly not a Web3ProtocolError", err)
 								}
 							}
 						}
@@ -428,10 +428,10 @@ func TestSuite(t *testing.T) {
 								assert.Equal(t, test.Error.Label, err.Error())
 							}
 							if test.Error.HttpCode > 0 {
-								if web3Err, ok := err.(*ErrorWithHttpCode); ok {
+								if web3Err, ok := err.(*Web3ProtocolError); ok {
 									assert.Equal(t, test.Error.HttpCode, web3Err.HttpCode)
 								} else {
-									assert.Fail(t, "Error is unexpectly not a ErrorWithHttpCode", err)
+									assert.Fail(t, "Error is unexpectly not a Web3ProtocolError", err)
 								}
 							}
 						}
@@ -475,10 +475,10 @@ func TestSuite(t *testing.T) {
 								assert.Equal(t, test.Error.Label, err.Error())
 							}
 							if test.Error.HttpCode > 0 {
-								if web3Err, ok := err.(*ErrorWithHttpCode); ok {
+								if web3Err, ok := err.(*Web3ProtocolError); ok {
 									assert.Equal(t, test.Error.HttpCode, web3Err.HttpCode)
 								} else {
-									assert.Fail(t, "Error is unexpectly not a ErrorWithHttpCode", err)
+									assert.Fail(t, "Error is unexpectly not a Web3ProtocolError", err)
 								}
 							}
 						}
