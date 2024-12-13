@@ -51,6 +51,12 @@ type ChainConfig struct {
 	// The maximum number of parralel requests to the RPC
 	RPCMaxConcurrentRequests int
 
+	// System RPC : RPC used by system workers (right now, ERC-7774 and its event caching checks)
+	// It will not be used for user requests, and has to be different from the main RPCs
+	// Aim : If the main RPCs are down, the system workers can still work
+	// If empty, the default RPC is used
+	SystemRPC string
+
 	// A chain-specific config per domain name service. Key is their short name.
 	DomainNameServices map[DomainNameService]DomainNameServiceChainConfig
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/sirupsen/logrus"
 )
 
@@ -287,6 +288,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 
 	var eventCheckingMutex sync.Mutex
 	eventCheckingIsRunning := false
+	var systemRpc string
 
 	// Func to get the logFields for the logging
 	logFields := func(extraFields logrus.Fields) logrus.Fields {
@@ -295,6 +297,7 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 			"chain": cct.ChainId,
 			"lastBlockNumber": cct.LastBlockNumber,
 			"worker": "checkEvents",
+			"rpc": systemRpc,
 		}
 		if extraFields != nil {
 			for k, v := range extraFields {
@@ -303,15 +306,22 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 		}
 		return fields
 	}	
-	log.WithFields(logFields(nil)).Info("Worker started.")
 
 	// Preparing the ethClient
-	ethClient, err := cct.GlobalCachingTracker.Client.getEthClient(cct.ChainId)
+	systemRpc, err := cct.GlobalCachingTracker.Client.GetSystemRpcUrl(cct.ChainId)
+	if err != nil {
+		log.WithFields(logFields(nil)).Error("Could not find a RPC, exiting.")
+		return
+	}
+	ethClient, err := ethclient.Dial(systemRpc)
 	if err != nil {
 		log.WithFields(logFields(nil)).Error("Could not connect to chain, exiting.")
 		return
 	}
 	defer ethClient.Close()
+
+	// Log the start
+	log.WithFields(logFields(nil)).Info("Worker started.")
 
 
 	// The event check task

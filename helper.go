@@ -151,21 +151,25 @@ func (client *Client) findAvailableRpc(chain int, allowTooManyRequestsRPCs bool)
 	return
 }
 
-// Get an ethClient for a given chain
-func (client *Client) getEthClient(chain int) (ethClient *ethclient.Client, err error) {
-	// Ensure the chain config entry exists
-	if _, ok := client.Config.Chains[chain]; !ok {
-		err = errors.New("chain not found")
+// Get the RPC to be used by system workers (e.g. ERC-7774), by chain
+func (client *Client) GetSystemRpcUrl(chain int) (rpcUrl string, err error) {
+	chainConfig, ok := client.Config.Chains[chain]
+	if !ok {
+		err = errors.New(fmt.Sprintf("No chain found for chain %d", chain))
 		return
 	}
-
-	ethClient, err = ethclient.Dial(client.Config.Chains[chain].RPC)
-	if err != nil {
-		err = errors.New("could not connect to chain")
+	rpcUrl = chainConfig.SystemRPC
+	if rpcUrl == "" {
+		rpc, err := client.findAvailableRpc(chain, true)
+		if err != nil {
+			return rpcUrl, err
+		}
+		rpcUrl = rpc.Config.RPC
 	}
 
 	return
 }
+
 
 // Call a contract with calldata
 func (client *Client) callContract(contract common.Address, chain int, calldata []byte) (contractReturn []byte, err error) {

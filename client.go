@@ -40,7 +40,7 @@ type Client struct {
 type RequestQueueKey struct {
 	// The URL of the request
 	URL string
-	// Some specific request headers
+	// Some specific request headers, which may alter the response
 	HttpHeaderIfNoneMatch string
 	HttpHeaderIfModifiedSince string
 	HttpHeaderAcceptEncoding string
