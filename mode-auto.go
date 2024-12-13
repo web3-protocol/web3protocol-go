@@ -29,14 +29,14 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL) (err error) {
 	// Get method name
 	methodName := pathnameParts[1]
 	if methodName == "" {
-		return &ErrorWithHttpCode{http.StatusBadRequest, "Missing method name"}
+		return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Missing method name")}
 	}
 	validMethodName, err := regexp.MatchString("^[a-zA-Z$_][a-zA-Z0-9$_]*$", methodName)
 	if err != nil {
 		return err
 	}
 	if validMethodName == false {
-		return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid method name"}
+		return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid method name")}
 	}
 	web3Url.ContractCallMode = ContractCallModeMethod
 	web3Url.MethodName = methodName
@@ -63,7 +63,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL) (err error) {
 	// Process the query values
 	parsedQuery, err := ParseQuery(web3Url.UrlParts.Query)
 	if err != nil {
-		return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse the query of the URL"}
+		return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unable to parse the query of the URL")}
 	}
 	// Check that we only have the allowed one
 	for _, queryValue := range parsedQuery {
@@ -71,7 +71,7 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL) (err error) {
 			queryValue.Name != "returnTypes" &&
 			queryValue.Name != "mime.content" &&
 			queryValue.Name != "mime.type" {
-			return &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported query attribute"}
+			return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unsupported query attribute")}
 		}
 	}
 
@@ -80,10 +80,10 @@ func (client *Client) parseAutoModeUrl(web3Url *Web3URL) (err error) {
 	returnTypes := selectedLastQueryParam.Value
 	if returnTypes != "" {
 		if len(returnTypes) < 2 {
-			return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid returns attribute"}
+			return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid returns attribute")}
 		}
 		if string(returnTypes[0]) != "(" || string(returnTypes[len(returnTypes)-1]) != ")" {
-			return &ErrorWithHttpCode{http.StatusBadRequest, "Invalid returns attribute"}
+			return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid returns attribute")}
 		}
 
 		if returnTypes == "()" {
@@ -146,7 +146,7 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
 	var decodedArgument string
 	decodedArgument, err = url.PathUnescape(argument)
 	if err != nil {
-		err = &ErrorWithHttpCode{http.StatusBadRequest, "Unable to URI-percent decode: " + argument}
+		err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unable to URI-percent decode: " + argument)}
 		return
 	}
 
@@ -187,18 +187,18 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
 			}
 			// Type size must be from 8 to 256, by steps of 8
 			if typeSize < 8 || typeSize > 256 || typeSize%8 != 0 {
-				err = &ErrorWithHttpCode{http.StatusBadRequest, "Invalid argument type: " + typeName}
+				err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid argument type: " + typeName)}
 				return
 			}
 
 			b := new(big.Int)
 			n, ok := b.SetString(argValueStr, 0)
 			if !ok {
-				err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument is not a number: " + argValueStr}
+				err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Argument is not a number: " + argValueStr)}
 				return
 			}
 			if typeWithoutSize == "uint" && n.Cmp(new(big.Int)) == -1 {
-				err = &ErrorWithHttpCode{http.StatusBadRequest, "Number is negative: " + argValueStr}
+				err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Number is negative: " + argValueStr)}
 				return
 			}
 			argValue = n
@@ -207,23 +207,23 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
 			// "bytes", no type size
 			if typeSize == 0 {
 				if !has0xPrefix(argValueStr) || !isHex(argValueStr[2:]) {
-					err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument is not a valid hex string: " + argValueStr}
+					err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Argument is not a valid hex string: " + argValueStr)}
 					return
 				}
 				argValue = common.FromHex(argValueStr)
 				// "bytesXX", with a type size
 			} else {
 				if typeSize > 32 {
-					err = &ErrorWithHttpCode{http.StatusBadRequest, "Invalid argument type: " + typeName}
+					err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid argument type: " + typeName)}
 					return
 				}
 
 				if !has0xPrefix(argValueStr) || !isHex(argValueStr[2:]) {
-					err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument is not a valid hex string: " + argValueStr}
+					err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Argument is not a valid hex string: " + argValueStr)}
 					return
 				}
 				if len(argValueStr[2:]) != 2*typeSize {
-					err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument has not the correct length: " + argValueStr}
+					err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Argument has not the correct length: " + argValueStr)}
 					return
 				}
 				argValue = common.HexToHash(argValueStr)
@@ -242,13 +242,13 @@ func (client *Client) parseArgument(argument string, nsChain int) (abiType abi.T
 
 		case "bool":
 			if argValueStr != "false" && argValueStr != "true" {
-				err = &ErrorWithHttpCode{http.StatusBadRequest, "Argument must be 'true' or 'false'"}
+				err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Argument must be 'true' or 'false'")}
 				return
 			}
 			argValue = argValueStr == "true"
 
 		default:
-			err = &ErrorWithHttpCode{http.StatusBadRequest, "Unknown type: " + typeName}
+			err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unknown type: " + typeName)}
 			return
 		}
 		abiType, _ = abi.NewType(typeName, "", nil)
@@ -348,7 +348,7 @@ func parseReturnSignature(text string) (result []abi.ArgumentMarshaling, err err
 			// Basic type
 		} else {
 			if part == "" {
-				return result, &ErrorWithHttpCode{http.StatusBadRequest, "Return attribute: missing type"}
+				return result, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Return attribute: missing type")}
 			}
 
 			// Aliases uint and int are allowed
@@ -360,7 +360,7 @@ func parseReturnSignature(text string) (result []abi.ArgumentMarshaling, err err
 
 			_, err := abi.NewType(part, "", nil)
 			if err != nil {
-				return result, &ErrorWithHttpCode{http.StatusBadRequest, "Return attribute: Invalid type: " + part}
+				return result, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Return attribute: Invalid type: " + part)}
 			}
 			result = append(result, abi.ArgumentMarshaling{Type: part, Name: "x"})
 		}

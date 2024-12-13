@@ -3,6 +3,7 @@ package web3protocol
 import (
 	// "context"
 	"fmt"
+	"errors"
 	// "mime"
 	"net/http"
 	"strings"
@@ -103,7 +104,7 @@ func (client *Client) getAddressFromNameService(nameServiceChain int, nameWithSu
 
 	// Not a domain name? It now has to have a dot to be a domain name, or it is just an invalid address
 	if len(strings.Split(nameWithSuffix, ".")) == 1 {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "Unrecognized domain name"}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unrecognized domain name")}
 	}
 
 	nsInfo, we := client.getConfigs(nameServiceChain, nameWithSuffix)
@@ -197,16 +198,16 @@ func (client *Client) resolve(nameServiceChain int, resolver common.Address, nam
 	argValues = append(argValues, nameHash)
 	msg, err := methodCallToCalldata("addr", methodArgTypes, argValues)
 	if err != nil {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 
 	// Call the contract
 	bs, err := client.callContract(resolver, nameServiceChain, msg)
 	if err != nil {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 	if common.Bytes2Hex(bs) == EmptyAddress {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusNotFound, "empty address"}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Empty address")}
 	}
 	res, e := parseOutput(bs, "address")
 	if e != nil {
@@ -223,16 +224,16 @@ func (client *Client) getResolver(nsAddr common.Address, nameHash [32]byte, name
 	argValues = append(argValues, nameHash)
 	msg, err := methodCallToCalldata("resolver", methodArgTypes, argValues)
 	if err != nil {
-		return common.Address{}, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+		return common.Address{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 
 	// Call the contract
 	bs, err := client.callContract(nsAddr, nameServiceChain, msg)
 	if err != nil {
-		return common.Address{}, &ErrorWithHttpCode{http.StatusNotFound, err.Error()}
+		return common.Address{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 	if common.Bytes2Hex(bs) == EmptyAddress {
-		return common.Address{}, &ErrorWithHttpCode{http.StatusNotFound, "Cannot resolve domain name"}
+		return common.Address{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Cannot resolve domain name")}
 	}
 	return common.BytesToAddress(bs), nil
 }
@@ -240,20 +241,20 @@ func (client *Client) getResolver(nsAddr common.Address, nameHash [32]byte, name
 func (client *Client) getConfigs(nameServiceChain int, nameWithSuffix string) (DomainNameServiceChainConfig, error) {
 	ss := strings.Split(nameWithSuffix, ".")
 	if len(ss) <= 1 {
-		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "invalid domain name: " + nameWithSuffix}
+		return DomainNameServiceChainConfig{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Invalid domain name: " + nameWithSuffix)}
 	}
 	suffix := ss[len(ss)-1]
 	chainInfo, ok := client.Config.Chains[nameServiceChain]
 	if !ok {
-		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, fmt.Sprintf("unsupported chain: %v", nameServiceChain)}
+		return DomainNameServiceChainConfig{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New(fmt.Sprintf("unsupported chain: %v", nameServiceChain))}
 	}
 	domainNameService := client.Config.GetDomainNameServiceBySuffix(suffix)
 	if domainNameService == "" {
-		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+		return DomainNameServiceChainConfig{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unsupported domain name suffix: " + suffix)}
 	}
 	nsInfo, ok := chainInfo.DomainNameServices[domainNameService]
 	if !ok {
-		return DomainNameServiceChainConfig{}, &ErrorWithHttpCode{http.StatusBadRequest, "Unsupported domain name suffix: " + suffix}
+		return DomainNameServiceChainConfig{}, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unsupported domain name suffix: " + suffix)}
 	}
 	return nsInfo, nil
 }
@@ -265,15 +266,15 @@ func (client *Client) parseChainSpecificAddress(addr string) (common.Address, in
 	}
 	ss := strings.Split(addr, ":")
 	if len(ss) != 2 {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "invalid contract address from name service: " + addr}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("invalid contract address from name service: " + addr)}
 	}
 	chainName := ss[0]
 	chainId := client.Config.GetChainIdByShortName(strings.ToLower(chainName))
 	if chainId == 0 {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "unsupported chain short name from name service: " + addr}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("unsupported chain short name from name service: " + addr)}
 	}
 	if !common.IsHexAddress(ss[1]) {
-		return common.Address{}, 0, &ErrorWithHttpCode{http.StatusBadRequest, "invalid contract address from name service: " + addr}
+		return common.Address{}, 0, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("invalid contract address from name service: " + addr)}
 	}
 	return common.HexToAddress(ss[1]), chainId, nil
 }
@@ -292,14 +293,14 @@ func parseOutput(output []byte, userTypes string) ([]interface{}, error) {
 	for _, arg := range returnArgs {
 		ty, err := abi.NewType(arg, "", nil)
 		if err != nil {
-			return nil, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+			return nil, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 		}
 		argsArray = append(argsArray, abi.Argument{Name: "", Type: ty, Indexed: false})
 	}
 	var res []interface{}
 	res, err := argsArray.UnpackValues(output)
 	if err != nil {
-		return nil, &ErrorWithHttpCode{http.StatusBadRequest, err.Error()}
+		return nil, &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: err}
 	}
 	if userTypes != "" {
 		for i, arg := range argsArray {

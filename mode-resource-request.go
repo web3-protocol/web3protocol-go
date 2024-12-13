@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"errors"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/andybalholm/brotli"
@@ -47,7 +48,7 @@ func (client *Client) parseResourceRequestModeUrl(web3Url *Web3URL) (err error) 
 	for i, _ := range pathnamePartsToSend {
 		decodedPart, err := url.PathUnescape(pathnamePartsToSend[i])
 		if err != nil {
-			return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to URI-percent decode: " + pathnamePartsToSend[i]}
+			return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unable to URI-percent decode: " + pathnamePartsToSend[i])}
 		}
 		pathnamePartsToSend[i] = decodedPart
 	}
@@ -135,7 +136,7 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 	// Decode the ABI data
 	unpackedValues, err := returnDataArgTypes.UnpackValues(contractReturn)
 	if err != nil {
-		return &ErrorWithHttpCode{http.StatusBadRequest, "Unable to parse contract output"}
+		return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Unable to parse contract output")}
 	}
 
 	// Assign the decoded data to the right slots
@@ -200,7 +201,7 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 			// Add the decompression reader
 			decompressionReader, err := gzip.NewReader(fetchedWeb3Url.Output)
 			if err != nil {
-				return &ErrorWithHttpCode{http.StatusBadRequest, "Gzip decompression error: " + err.Error()}
+				return &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Gzip decompression error: " + err.Error())}
 			}
 			fetchedWeb3Url.Output = decompressionReader
 			// Add the error wrapper reader
@@ -449,7 +450,7 @@ func (r *PrefixDecompressionErrorReader) Read(p []byte) (readBytes int, err erro
 	if err != nil {
 		// The brotli libs prefix his errors with "brotli: ": Put a little more helpful error message
 		if strings.HasPrefix(err.Error(), "brotli: ") {
-			err = &ErrorWithHttpCode{http.StatusBadRequest, "Brotli decompression error: " + strings.TrimPrefix(err.Error(), "brotli: ")}
+			err = &Web3ProtocolError{HttpCode: http.StatusServiceUnavailable, Err: errors.New("Brotli decompression error: " + strings.TrimPrefix(err.Error(), "brotli: "))}
 		}
 	}
 

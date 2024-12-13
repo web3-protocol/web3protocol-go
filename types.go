@@ -131,15 +131,3 @@ func (e *Web3ProtocolError) Error() string {
 	}
 }
 
-
-// An error type with a HTTP code
-type ErrorWithHttpCode struct {
-	HttpCode int
-	Err      string
-}
-
-func (e *ErrorWithHttpCode) Error() string {
-	return e.Err
-}
-
-
