@@ -103,7 +103,9 @@ func TestSuite(t *testing.T) {
 			1: ChainConfig{
 				ChainId:   1,
 				ShortName: "eth",
-				RPC:       "https://ethereum.publicnode.com/",
+				RPC:       ChainRPCConfig{
+					Url: "https://ethereum.publicnode.com/",
+				},
 				DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
 					DomainNameServiceENS: DomainNameServiceChainConfig{
 						Id:              DomainNameServiceENS,
@@ -114,7 +116,9 @@ func TestSuite(t *testing.T) {
 			5: ChainConfig{
 				ChainId:   5,
 				ShortName: "gor",
-				RPC:       "https://ethereum-goerli.publicnode.com",
+				RPC:       ChainRPCConfig{
+					Url: "https://ethereum-goerli.publicnode.com",
+				},
 				DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
 					DomainNameServiceENS: DomainNameServiceChainConfig{
 						Id:              DomainNameServiceENS,
@@ -125,7 +129,9 @@ func TestSuite(t *testing.T) {
 			11155111: ChainConfig{
 				ChainId:   11155111,
 				ShortName: "sep",
-				RPC:       "https://ethereum-sepolia.publicnode.com",
+				RPC:       ChainRPCConfig{
+					Url: "https://ethereum-sepolia.publicnode.com",
+				},
 				DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
 					DomainNameServiceENS: DomainNameServiceChainConfig{
 						Id:              DomainNameServiceENS,
@@ -136,7 +142,9 @@ func TestSuite(t *testing.T) {
 			3334: ChainConfig{
 				ChainId:   3334,
 				ShortName: "w3q-g",
-				RPC:       "https://galileo.web3q.io:8545",
+				RPC:       ChainRPCConfig{
+					Url: "https://galileo.web3q.io:8545",
+				},
 				DomainNameServices: map[DomainNameService]DomainNameServiceChainConfig{
 					DomainNameServiceW3NS: DomainNameServiceChainConfig{
 						Id:              DomainNameServiceW3NS,
@@ -147,7 +155,9 @@ func TestSuite(t *testing.T) {
 			42170: ChainConfig{
 				ChainId:   42170,
 				ShortName: "arb-nova",
-				RPC:       "https://nova.arbitrum.io/rpc",
+				RPC:       ChainRPCConfig{
+					Url: "https://nova.arbitrum.io/rpc",
+				},
 			},
 		},
 		DomainNameServices: map[DomainNameService]DomainNameServiceConfig{
@@ -220,7 +230,7 @@ func TestSuite(t *testing.T) {
 					// Test type: Parsing URL
 					if testGroups.Type == TestTypeUrlParsing {
 						// Parse the URL
-						parsedUrl, err := client.ParseUrl(test.Url)
+						parsedUrl, err := client.ParseUrl(test.Url, map[string]string{})
 
 						if err == nil {
 							// If we were expecting an error, fail
@@ -429,7 +439,7 @@ func TestSuite(t *testing.T) {
 						// Test type: Execution of the whole process
 					} else if testGroups.Type == TestTypeFetch {
 						// Fetch the url
-						fetchedWeb3Url, err := client.FetchUrl(test.Url)
+						fetchedWeb3Url, err := client.FetchUrl(test.Url, map[string]string{})
 
 						if err == nil {
 							// If we were expecting an error, fail
