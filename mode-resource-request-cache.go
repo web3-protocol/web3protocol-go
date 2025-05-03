@@ -7,7 +7,7 @@ import (
 	"strings"
 	"context"
 	"math/big"
-	"errors"
+	// "errors"
 	// "fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -202,15 +202,42 @@ func (c *ResourceRequestChainCachingTracker) GetResourceCachingInfosByPattern(co
 		return
 	}
 
-	// For now we only implement the "*" wildcard
-	if pathQueryPattern != "*" {
-		err = errors.New("Only the '*' wildcard is supported")
-		return
-	}
-
+	// Special case: a single "*" will return everything
 	resourceCachingInfos = make(map[string]*ResourceCachingInfos)
-	for pathQuery, cachingInfos := range contractResources {
-		resourceCachingInfos[pathQuery] = cachingInfos
+	if pathQueryPattern == "*" {
+		for pathQuery, cachingInfos := range contractResources {
+			resourceCachingInfos[pathQuery] = cachingInfos
+		}
+	// General case: 
+	// A path can have wildcards in path components
+	// e.g. 
+	// "/path/*/to/*" will match "/path/1/to/2" and "/path/3/to/4", but 
+	//   not "/path/1/to", "/path/1/to/", "/path/1/to/2/3"
+	// "/*" will match "/path" but not "/", "/path/1"
+	} else {
+		for pathQuery, cachingInfos := range contractResources {
+			pathQueryParts := strings.Split(pathQuery, "/")
+			pathQueryPatternParts := strings.Split(pathQueryPattern, "/")
+			if len(pathQueryParts) != len(pathQueryPatternParts) {
+				continue
+			}
+			match := true
+			for i, pathQueryPart := range pathQueryParts {
+				// Not a wildcard : It must match exactly
+				if pathQueryPatternParts[i] != "*" && pathQueryPart != pathQueryPatternParts[i] {
+					match = false
+					break
+				}
+				// Wildcard : It can match anything, but not empty
+				if pathQueryPatternParts[i] == "*" && pathQueryPart == "" {
+					match = false
+					break
+				}
+			}
+			if match {
+				resourceCachingInfos[pathQuery] = cachingInfos
+			}
+		}
 	}
 
 	// Log the cache hit
@@ -411,20 +438,13 @@ func (cct *ResourceRequestChainCachingTracker) checkEventsWorker(eventsCheckInte
 			// Delete the caching infos for each pathQuery
 			for _, pathQuery := range pathQueries {
 				resourcesToClear := make(map[string]*ResourceCachingInfos)
-				// Special case : if the pathQuery is "*", we delete everything from the contract
-				if pathQuery == "*" {
-					_resourcesToClear, err := cct.GetResourceCachingInfosByPattern(logEntry.Address, pathQuery)
-					if err != nil {
-						log.WithFields(logFields(nil)).Error("Could not get the resources to clear, skipping...")
-						continue
-					}
-					resourcesToClear = _resourcesToClear
-				} else {
-					resourceCachingInfos, ok := cct.GetResourceCachingInfos(logEntry.Address, pathQuery)
-					if ok {
-						resourcesToClear[pathQuery] = resourceCachingInfos
-					}
+				// Find the resources to clear (handles wildcards)
+				_resourcesToClear, err := cct.GetResourceCachingInfosByPattern(logEntry.Address, pathQuery)
+				if err != nil {
+					log.WithFields(logFields(nil)).Error("Could not get the resources to clear, skipping...")
+					continue
 				}
+				resourcesToClear = _resourcesToClear
 
 				// For each resource to clear, delete the cache
 				for pathQuery, resourceCachingInfos := range resourcesToClear {
