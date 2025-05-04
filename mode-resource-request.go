@@ -243,101 +243,111 @@ func (client *Client) ProcessResourceRequestContractReturn(fetchedWeb3Url *Fetch
 		etagLowercaseHeaderName, eTagHeaderPresent := headersLowercase["etag"]
 		if eTagHeaderPresent {
 			// Cache clearing event : the contract where it should come from, and the pathQuery it should
-			// listen for
-			// By default : the same contract address than the one serving the page, and the same pathQuery
-			cacheClearingContractAddress := web3Url.ContractAddress
-			cacheClearingPathQuery := SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues)
+			// listen for, is the same contract address than the one serving the page, and the same pathQuery
+			// Additionally, we can also listen for cache clearing events from other contracts
+			// They are specified in the optional "evm-events" directive value
+			// The format is : "<contractAddress><pathQuery> <contractAddress><pathQuery> ..."
+			extraCacheClearingUrls := []AddressPathQuery{}
+			// Extract the different values
+			directiveValues := strings.Split(evmEventDirectiveValue, " ")
+			// For each value, check if it is a valid contract address
+			// and a valid path query
+			for _, directiveValue := range directiveValues {
+				if directiveValue == "" {
+					continue
+				}
 
-			// By default, we will listen for cache clearing events from the same contract for the same path
-			// But this can be overriden by the directive value
-			// If there is a directive value, parse it
-			// The format is : "<contractAddress><pathQuery>"
-			var invalidDirectiveValueSyntax bool
-			if evmEventDirectiveValue != "" {
+				var invalidDirectiveValueSyntax bool
+				// If the contractAddress is empty, we will use the one from the web3Url, and
+				// if the pathQuery is empty, we will use the one from the web3Url
+				extraCacheClearingUrl := AddressPathQuery{
+					ContractAddress: web3Url.ContractAddress,
+					PathQuery: SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues),
+				}
 				// If the directive value starts with "0x", it must start with a contract address
-				if evmEventDirectiveValue[0:2] == "0x" && len(evmEventDirectiveValue) >= 42 {
+				if directiveValue[0:2] == "0x" && len(directiveValue) >= 42 {
 					// Parse the contract address
-					if common.IsHexAddress(evmEventDirectiveValue[:42]) == false {
+					if common.IsHexAddress(directiveValue[:42]) == false {
 						invalidDirectiveValueSyntax = true
 					}
-					cacheClearingContractAddress = common.HexToAddress(evmEventDirectiveValue[:42])
+					extraCacheClearingUrl.ContractAddress = common.HexToAddress(directiveValue[:42])
 					// The rest is the path query
-					evmEventDirectiveValue = evmEventDirectiveValue[42:]
+					directiveValue = directiveValue[42:]
 				}
 				// If the directive value is not empty, it must start with a "/"
-				if evmEventDirectiveValue != "" {
-					if evmEventDirectiveValue[0:1] != "/" {
+				if directiveValue != "" {
+					if directiveValue[0:1] != "/" {
 						invalidDirectiveValueSyntax = true
 					}
-					cacheClearingPathQuery = evmEventDirectiveValue
+					extraCacheClearingUrl.PathQuery = directiveValue
+				}
+				// If the syntax was correct, add it to the list
+				if invalidDirectiveValueSyntax == false {
+					extraCacheClearingUrls = append(extraCacheClearingUrls, extraCacheClearingUrl)
 				}
 			}
+			
+			// Set the resource caching infos
+			chainCachingTracker := client.ResourceRequestCachingTracker.GetOrCreateChainCachingTracker(web3Url.ChainId)
+			// Get or create the resourceCachingInfos
+			resourceCachingInfos, ok := chainCachingTracker.GetResourceCachingInfos(web3Url.ContractAddress, SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues))
+			if !ok {
+				resourceCachingInfos = &ResourceCachingInfos{}
+			}
+			// Set the ETag
+			resourceCachingInfos.ETag = fetchedWeb3Url.HttpHeaders[etagLowercaseHeaderName]
+			// Save it
+			serializedPathQuery := SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues)
+			chainCachingTracker.SetResourceCachingInfos(
+				web3Url.ContractAddress, 
+				serializedPathQuery,
+				resourceCachingInfos)
+			// Log
+			client.Logger.WithFields(logrus.Fields{
+				"domain": "resourceRequestModeCaching",
+				"chain": web3Url.ChainId,
+				"contractAddress": web3Url.ContractAddress,
+				"etag": resourceCachingInfos.ETag,
+				"listeners": resourceCachingInfos.CacheClearEventListeners,
+			}).Info("Cache infos set for path ", serializedPathQuery)
 
-			// Ensure that the syntax of the value was correct
-			if invalidDirectiveValueSyntax == false {
-				// Set the resource caching infos
-				chainCachingTracker := client.ResourceRequestCachingTracker.GetOrCreateChainCachingTracker(web3Url.ChainId)
+			// For each extra cache clearing URL, we will add a listener to its ResourceCachingInfos
+			for _, extraCacheClearingUrl := range extraCacheClearingUrls {
 				// Get or create the resourceCachingInfos
-				resourceCachingInfos, ok := chainCachingTracker.GetResourceCachingInfos(web3Url.ContractAddress, SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues))
+				clearingResourceCachingInfos, ok := chainCachingTracker.GetResourceCachingInfos(extraCacheClearingUrl.ContractAddress, extraCacheClearingUrl.PathQuery)
 				if !ok {
-					resourceCachingInfos = &ResourceCachingInfos{}
+					clearingResourceCachingInfos = &ResourceCachingInfos{}
+					chainCachingTracker.SetResourceCachingInfos(
+						extraCacheClearingUrl.ContractAddress,
+						extraCacheClearingUrl.PathQuery,
+						clearingResourceCachingInfos,
+					)
 				}
-				// Set the ETag
-				resourceCachingInfos.ETag = fetchedWeb3Url.HttpHeaders[etagLowercaseHeaderName]
-				// Save it
-				serializedPathQuery := SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues)
-				chainCachingTracker.SetResourceCachingInfos(
-					web3Url.ContractAddress, 
-					serializedPathQuery,
-					resourceCachingInfos)
-				// Log
-				client.Logger.WithFields(logrus.Fields{
-					"domain": "resourceRequestModeCaching",
-					"chain": web3Url.ChainId,
-					"contractAddress": web3Url.ContractAddress,
-					"etag": resourceCachingInfos.ETag,
-					"listeners": resourceCachingInfos.CacheClearEventListeners,
-				}).Info("Cache infos set for path ", serializedPathQuery)
 
-				// If there is a different cache clearing contract address or path, we will update its resourceCachingInfos
-				if cacheClearingContractAddress != web3Url.ContractAddress || cacheClearingPathQuery != SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues) {
-					// Get or create the resourceCachingInfos
-					clearingResourceCachingInfos, ok := chainCachingTracker.GetResourceCachingInfos(cacheClearingContractAddress, cacheClearingPathQuery)
-					if !ok {
-						clearingResourceCachingInfos = &ResourceCachingInfos{}
-						chainCachingTracker.SetResourceCachingInfos(
-							cacheClearingContractAddress,
-							cacheClearingPathQuery,
-							clearingResourceCachingInfos,
-						)
+				// Append ourselves to the CacheClearEventListeners. Ensure that there are no duplicates
+				exists := false
+				for _, location := range clearingResourceCachingInfos.CacheClearEventListeners {
+					if location.ContractAddress == web3Url.ContractAddress && location.PathQuery == SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues) {
+						exists = true
+						break
 					}
-
-					// Append ourselves to the CacheClearEventListeners. Ensure that there are no duplicates
-					exists := false
-					for _, location := range clearingResourceCachingInfos.CacheClearEventListeners {
-						if location.ContractAddress == web3Url.ContractAddress && location.PathQuery == SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues) {
-							exists = true
-							break
-						}
-					}
-					if !exists {
-						clearingResourceCachingInfos.CacheClearEventListeners = append(clearingResourceCachingInfos.CacheClearEventListeners, AddressPathQuery{
-							ContractAddress: web3Url.ContractAddress,
-							PathQuery:       SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues),
-						})
-						// Log
-						client.Logger.WithFields(logrus.Fields{
-							"domain": "resourceRequestModeCaching",
-							"chain": web3Url.ChainId,
-							"contractAddress": cacheClearingContractAddress,
-							"etag": clearingResourceCachingInfos.ETag,
-							"listeners": clearingResourceCachingInfos.CacheClearEventListeners,
-						}).Info("Added listener for cache infos for path ", cacheClearingPathQuery)
-					}
+				}
+				if !exists {
+					clearingResourceCachingInfos.CacheClearEventListeners = append(clearingResourceCachingInfos.CacheClearEventListeners, AddressPathQuery{
+						ContractAddress: web3Url.ContractAddress,
+						PathQuery: SerializeResourceRequestMethodArgValues(web3Url.MethodArgValues),
+					})
+					// Log
+					client.Logger.WithFields(logrus.Fields{
+						"domain": "resourceRequestModeCaching",
+						"chain": web3Url.ChainId,
+						"contractAddress": extraCacheClearingUrl.ContractAddress,
+						"etag": clearingResourceCachingInfos.ETag,
+						"listeners": clearingResourceCachingInfos.CacheClearEventListeners,
+					}).Info("Added listener for cache infos for path ", extraCacheClearingUrl.PathQuery)
 				}
 			}
 		}
-
 	}
 
 	return
