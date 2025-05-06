@@ -7,6 +7,7 @@ import (
 	"strings"
 	"context"
 	"math/big"
+	"regexp"
 	// "errors"
 	// "fmt"
 
@@ -523,29 +524,34 @@ func SerializeResourceRequestMethodArgValues(argValues []interface{}) (pathQuery
 // Parse the Cache-Control header value into a map of directives
 func GetCacheControlHeaderDirectives(headerValue string) (directives map[string]string) {
 	directives = make(map[string]string)
-	headerParts := strings.Split(headerValue, " ")
-	for _, headerPart := range headerParts {
-		headerPart = strings.TrimSpace(headerPart)
-		if headerPart != "" {
-			// Split the directive and its value (if any)
-			headerPartParts := strings.Split(headerPart, "=")
-			if len(headerPartParts) == 1 {
-				directives[headerPartParts[0]] = ""
-			} else {
-				// If the value is double-quoted, remove the quotes, and unescape the value
-				value := headerPartParts[1]
-				if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-					value = value[1:len(value)-1]
-					// Proper unescaping of quoted-string according to 
-					// https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.4
-					// to fulfill cache-control directive requirements from
-					// https://www.rfc-editor.org/rfc/rfc9111#section-5.2
-					// would need to be implemented; for now we'll only unescape quotes
-					value = strings.ReplaceAll(value, "\\\"", "\"")
-				}
-				directives[headerPartParts[0]] = value
-			}
+	
+	// Regular expression to match key-value pairs in Cache-Control header
+	// Matches three patterns:
+	// 1. key="quoted value" (with quoted values that can contain spaces)
+	// 2. key=value (unquoted values without spaces)
+	// 3. standalone keys (flags without values)
+	re := regexp.MustCompile(`(?:^|[,;]\s*)([^=,;\s]+)(?:\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^,;\s]*)))?`)
+	
+	matches := re.FindAllStringSubmatch(headerValue, -1)
+	for _, match := range matches {
+		key := match[1]
+		var value string
+		
+		// If we have a quoted value (match[2]), use that; otherwise use the unquoted value (match[3])
+		if match[2] != "" {
+			value = match[2]
+			// Proper unescaping of quoted-string according to 
+			// https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.4
+			// to fulfill cache-control directive requirements from
+			// https://www.rfc-editor.org/rfc/rfc9111#section-5.2
+			// would need to be implemented; for now we'll only unescape quotes
+			value = strings.ReplaceAll(value, "\\\"", "\"")
+		} else if match[3] != "" {
+			value = match[3]			
 		}
+		
+		directives[key] = value
 	}
+	
 	return
 }
