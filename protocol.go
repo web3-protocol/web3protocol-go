@@ -359,8 +359,12 @@ func (client *Client) ParseUrl(url string, httpHeaders map[string]string) (web3U
 			return web3Url, &Web3ProtocolError{HttpCode: http.StatusBadRequest, Err: errors.New("Unsupported resolve mode")}
 		}
 
-		// Cache the resolve mode
-		client.ResolveModeCache.Add(resolveModeCacheKey, web3Url.ResolveMode)
+		// Cache explicit responses only. An empty return (for example before a
+		// deployment reaches the RPC head) or a revert is an auto-mode fallback,
+		// not evidence that this address will always use auto mode.
+		if err == nil && len(resolveModeReturn) == 32 {
+			client.ResolveModeCache.Add(resolveModeCacheKey, web3Url.ResolveMode)
+		}
 	}
 
 	// Then process the resolve-mode-specific parts
